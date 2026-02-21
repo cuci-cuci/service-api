@@ -17,11 +17,12 @@ import (
 
 type ConfigHandler struct {
 	svc      *service.ConfigService
+	audit    *service.AuditService
 	validate *validator.Validate
 }
 
-func NewConfigHandler(svc *service.ConfigService, validate *validator.Validate) *ConfigHandler {
-	return &ConfigHandler{svc: svc, validate: validate}
+func NewConfigHandler(svc *service.ConfigService, audit *service.AuditService, validate *validator.Validate) *ConfigHandler {
+	return &ConfigHandler{svc: svc, audit: audit, validate: validate}
 }
 
 func (h *ConfigHandler) GetCurrentConfig(w http.ResponseWriter, r *http.Request) {
@@ -53,6 +54,15 @@ func (h *ConfigHandler) PushConfig(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, err)
 		return
 	}
+
+	// FIX 5: Audit log for config push
+	claims := middleware.GetClaims(r.Context())
+	actorName := ""
+	if claims != nil {
+		actorName = claims.Subject
+	}
+	h.audit.LogAction(r.Context(), userID, actorName, "push_config", "config_version", config.ID.String(), nil, config, &tenantID)
+
 	response.JSON(w, http.StatusCreated, config)
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bangun-ekosistem/service-api/internal/domain"
+	"github.com/bangun-ekosistem/service-api/internal/middleware"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
 )
@@ -24,6 +25,8 @@ func NewAuditService(db *pgxpool.Pool) *AuditService {
 }
 
 func (s *AuditService) LogAction(ctx context.Context, actorID uuid.UUID, actorName, action, entityType, entityID string, oldValue, newValue any, tenantID *uuid.UUID) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var oldJSON, newJSON json.RawMessage
 
 	if oldValue != nil {
@@ -39,7 +42,7 @@ func (s *AuditService) LogAction(ctx context.Context, actorID uuid.UUID, actorNa
 		}
 	}
 
-	_, err := s.db.Exec(ctx,
+	_, err := q.Exec(ctx,
 		`INSERT INTO audit_logs (id, actor_id, actor_name, action, entity_type, entity_id, old_value, new_value, tenant_id, created_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		uuid.New(), actorID, actorName, action, entityType, entityID, oldJSON, newJSON, tenantID, time.Now())
@@ -49,6 +52,8 @@ func (s *AuditService) LogAction(ctx context.Context, actorID uuid.UUID, actorNa
 }
 
 func (s *AuditService) ListLogs(ctx context.Context, tenantID *uuid.UUID, params pagination.Params) ([]domain.AuditLog, int, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var total int
 	var args []any
 	countQuery := "SELECT COUNT(*) FROM audit_logs"
@@ -60,7 +65,7 @@ func (s *AuditService) ListLogs(ctx context.Context, tenantID *uuid.UUID, params
 		args = append(args, *tenantID)
 	}
 
-	err := s.db.QueryRow(ctx, countQuery, args...).Scan(&total)
+	err := q.QueryRow(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, apperror.Internal("failed to count audit logs", err)
 	}
@@ -68,7 +73,7 @@ func (s *AuditService) ListLogs(ctx context.Context, tenantID *uuid.UUID, params
 	listQuery += " ORDER BY created_at DESC LIMIT $" + strconv.Itoa(len(args)+1) + " OFFSET $" + strconv.Itoa(len(args)+2)
 	args = append(args, params.PerPage, params.Offset())
 
-	rows, err := s.db.Query(ctx, listQuery, args...)
+	rows, err := q.Query(ctx, listQuery, args...)
 	if err != nil {
 		return nil, 0, apperror.Internal("failed to list audit logs", err)
 	}
@@ -90,4 +95,3 @@ func (s *AuditService) ListLogs(ctx context.Context, tenantID *uuid.UUID, params
 
 	return logs, total, nil
 }
-

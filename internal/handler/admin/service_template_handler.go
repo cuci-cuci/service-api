@@ -69,6 +69,12 @@ func (h *ServiceTemplateHandler) UpdateCategory(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// FIX 4: Add validation for update request
+	if err := h.validate.Struct(req); err != nil {
+		response.ValidationError(w, validationErrors(err))
+		return
+	}
+
 	cat, err := h.svc.UpdateCategory(r.Context(), id, req)
 	if err != nil {
 		response.Error(w, err)
@@ -119,6 +125,12 @@ func (h *ServiceTemplateHandler) UpdateTemplate(w http.ResponseWriter, r *http.R
 	var req domain.UpdateServiceTemplateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, apperror.Validation("invalid request body"))
+		return
+	}
+
+	// FIX 4: Add validation for update request
+	if err := h.validate.Struct(req); err != nil {
+		response.ValidationError(w, validationErrors(err))
 		return
 	}
 

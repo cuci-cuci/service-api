@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bangun-ekosistem/service-api/internal/domain"
+	"github.com/bangun-ekosistem/service-api/internal/middleware"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 )
 
@@ -21,7 +22,9 @@ func NewFeatureFlagService(db *pgxpool.Pool) *FeatureFlagService {
 }
 
 func (s *FeatureFlagService) ListFlags(ctx context.Context) ([]domain.FeatureFlag, error) {
-	rows, err := s.db.Query(ctx,
+	q := middleware.GetQuerier(ctx, s.db)
+
+	rows, err := q.Query(ctx,
 		`SELECT id, key, description, default_enabled FROM feature_flags ORDER BY key ASC`)
 	if err != nil {
 		slog.Error("failed to list feature flags", "error", err)
@@ -46,8 +49,10 @@ func (s *FeatureFlagService) ListFlags(ctx context.Context) ([]domain.FeatureFla
 }
 
 func (s *FeatureFlagService) CreateFlag(ctx context.Context, req domain.CreateFeatureFlagRequest) (*domain.FeatureFlag, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var exists bool
-	err := s.db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM feature_flags WHERE key = $1)", req.Key).Scan(&exists)
+	err := q.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM feature_flags WHERE key = $1)", req.Key).Scan(&exists)
 	if err != nil {
 		return nil, apperror.Internal("failed to check flag key", err)
 	}
@@ -62,7 +67,7 @@ func (s *FeatureFlagService) CreateFlag(ctx context.Context, req domain.CreateFe
 		DefaultEnabled: req.DefaultEnabled,
 	}
 
-	_, err = s.db.Exec(ctx,
+	_, err = q.Exec(ctx,
 		`INSERT INTO feature_flags (id, key, description, default_enabled) VALUES ($1, $2, $3, $4)`,
 		f.ID, f.Key, f.Description, f.DefaultEnabled)
 	if err != nil {
@@ -73,8 +78,10 @@ func (s *FeatureFlagService) CreateFlag(ctx context.Context, req domain.CreateFe
 }
 
 func (s *FeatureFlagService) UpdateFlag(ctx context.Context, id uuid.UUID, req domain.UpdateFeatureFlagRequest) (*domain.FeatureFlag, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var f domain.FeatureFlag
-	err := s.db.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT id, key, description, default_enabled FROM feature_flags WHERE id = $1`, id).
 		Scan(&f.ID, &f.Key, &f.Description, &f.DefaultEnabled)
 	if err != nil {
@@ -91,7 +98,7 @@ func (s *FeatureFlagService) UpdateFlag(ctx context.Context, id uuid.UUID, req d
 		f.DefaultEnabled = *req.DefaultEnabled
 	}
 
-	_, err = s.db.Exec(ctx,
+	_, err = q.Exec(ctx,
 		`UPDATE feature_flags SET description = $1, default_enabled = $2 WHERE id = $3`,
 		f.Description, f.DefaultEnabled, f.ID)
 	if err != nil {
@@ -107,7 +114,9 @@ type TenantFeatureFlagResponse struct {
 }
 
 func (s *FeatureFlagService) GetTenantFlags(ctx context.Context, tenantID uuid.UUID) ([]TenantFeatureFlagResponse, error) {
-	rows, err := s.db.Query(ctx,
+	q := middleware.GetQuerier(ctx, s.db)
+
+	rows, err := q.Query(ctx,
 		`SELECT ff.id, ff.key, ff.description, ff.default_enabled,
 		        COALESCE(tff.enabled, ff.default_enabled) as enabled
 		 FROM feature_flags ff
@@ -135,7 +144,9 @@ func (s *FeatureFlagService) GetTenantFlags(ctx context.Context, tenantID uuid.U
 }
 
 func (s *FeatureFlagService) SetTenantFlag(ctx context.Context, tenantID uuid.UUID, flagID uuid.UUID, enabled bool) error {
-	_, err := s.db.Exec(ctx,
+	q := middleware.GetQuerier(ctx, s.db)
+
+	_, err := q.Exec(ctx,
 		`INSERT INTO tenant_feature_flags (id, tenant_id, feature_flag_id, enabled)
 		 VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (tenant_id, feature_flag_id) DO UPDATE SET enabled = $4`,

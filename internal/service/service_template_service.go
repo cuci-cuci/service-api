@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bangun-ekosistem/service-api/internal/domain"
+	"github.com/bangun-ekosistem/service-api/internal/middleware"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
 )
@@ -25,14 +26,16 @@ func NewServiceTemplateService(db *pgxpool.Pool) *ServiceTemplateService {
 // --- Service Categories ---
 
 func (s *ServiceTemplateService) ListCategories(ctx context.Context, params pagination.Params) ([]domain.ServiceCategory, int, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var total int
-	err := s.db.QueryRow(ctx, "SELECT COUNT(*) FROM service_categories").Scan(&total)
+	err := q.QueryRow(ctx, "SELECT COUNT(*) FROM service_categories").Scan(&total)
 	if err != nil {
 		slog.Error("failed to count categories", "error", err)
 		return nil, 0, apperror.Internal("failed to count categories", err)
 	}
 
-	rows, err := s.db.Query(ctx,
+	rows, err := q.Query(ctx,
 		`SELECT id, name, icon, sort_order, is_active, created_at
 		 FROM service_categories ORDER BY sort_order ASC, name ASC LIMIT $1 OFFSET $2`,
 		params.PerPage, params.Offset())
@@ -58,6 +61,8 @@ func (s *ServiceTemplateService) ListCategories(ctx context.Context, params pagi
 }
 
 func (s *ServiceTemplateService) CreateCategory(ctx context.Context, req domain.CreateServiceCategoryRequest) (*domain.ServiceCategory, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	c := domain.ServiceCategory{
 		ID:        uuid.New(),
 		Name:      req.Name,
@@ -67,7 +72,7 @@ func (s *ServiceTemplateService) CreateCategory(ctx context.Context, req domain.
 		CreatedAt: time.Now(),
 	}
 
-	_, err := s.db.Exec(ctx,
+	_, err := q.Exec(ctx,
 		`INSERT INTO service_categories (id, name, icon, sort_order, is_active, created_at)
 		 VALUES ($1, $2, $3, $4, $5, $6)`,
 		c.ID, c.Name, c.Icon, c.SortOrder, c.IsActive, c.CreatedAt)
@@ -79,8 +84,10 @@ func (s *ServiceTemplateService) CreateCategory(ctx context.Context, req domain.
 }
 
 func (s *ServiceTemplateService) UpdateCategory(ctx context.Context, id uuid.UUID, req domain.UpdateServiceCategoryRequest) (*domain.ServiceCategory, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var c domain.ServiceCategory
-	err := s.db.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT id, name, icon, sort_order, is_active, created_at FROM service_categories WHERE id = $1`, id).
 		Scan(&c.ID, &c.Name, &c.Icon, &c.SortOrder, &c.IsActive, &c.CreatedAt)
 	if err != nil {
@@ -103,7 +110,7 @@ func (s *ServiceTemplateService) UpdateCategory(ctx context.Context, id uuid.UUI
 		c.IsActive = *req.IsActive
 	}
 
-	_, err = s.db.Exec(ctx,
+	_, err = q.Exec(ctx,
 		`UPDATE service_categories SET name = $1, icon = $2, sort_order = $3, is_active = $4 WHERE id = $5`,
 		c.Name, c.Icon, c.SortOrder, c.IsActive, c.ID)
 	if err != nil {
@@ -116,13 +123,15 @@ func (s *ServiceTemplateService) UpdateCategory(ctx context.Context, id uuid.UUI
 // --- Service Templates ---
 
 func (s *ServiceTemplateService) ListTemplates(ctx context.Context, params pagination.Params) ([]domain.ServiceTemplate, int, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var total int
-	err := s.db.QueryRow(ctx, "SELECT COUNT(*) FROM service_templates").Scan(&total)
+	err := q.QueryRow(ctx, "SELECT COUNT(*) FROM service_templates").Scan(&total)
 	if err != nil {
 		return nil, 0, apperror.Internal("failed to count templates", err)
 	}
 
-	rows, err := s.db.Query(ctx,
+	rows, err := q.Query(ctx,
 		`SELECT id, category_id, name, pricing_unit, base_price, estimated_duration_hours, is_active, sort_order, created_at
 		 FROM service_templates ORDER BY sort_order ASC, name ASC LIMIT $1 OFFSET $2`,
 		params.PerPage, params.Offset())
@@ -149,6 +158,8 @@ func (s *ServiceTemplateService) ListTemplates(ctx context.Context, params pagin
 }
 
 func (s *ServiceTemplateService) CreateTemplate(ctx context.Context, req domain.CreateServiceTemplateRequest) (*domain.ServiceTemplate, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	categoryID, err := uuid.Parse(req.CategoryID)
 	if err != nil {
 		return nil, apperror.Validation("invalid category_id")
@@ -166,7 +177,7 @@ func (s *ServiceTemplateService) CreateTemplate(ctx context.Context, req domain.
 		CreatedAt:              time.Now(),
 	}
 
-	_, err = s.db.Exec(ctx,
+	_, err = q.Exec(ctx,
 		`INSERT INTO service_templates (id, category_id, name, pricing_unit, base_price, estimated_duration_hours, is_active, sort_order, created_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		t.ID, t.CategoryID, t.Name, t.PricingUnit, t.BasePrice, t.EstimatedDurationHours, t.IsActive, t.SortOrder, t.CreatedAt)
@@ -178,8 +189,10 @@ func (s *ServiceTemplateService) CreateTemplate(ctx context.Context, req domain.
 }
 
 func (s *ServiceTemplateService) UpdateTemplate(ctx context.Context, id uuid.UUID, req domain.UpdateServiceTemplateRequest) (*domain.ServiceTemplate, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var t domain.ServiceTemplate
-	err := s.db.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT id, category_id, name, pricing_unit, base_price, estimated_duration_hours, is_active, sort_order, created_at
 		 FROM service_templates WHERE id = $1`, id).
 		Scan(&t.ID, &t.CategoryID, &t.Name, &t.PricingUnit, &t.BasePrice,
@@ -210,7 +223,7 @@ func (s *ServiceTemplateService) UpdateTemplate(ctx context.Context, id uuid.UUI
 		t.IsActive = *req.IsActive
 	}
 
-	_, err = s.db.Exec(ctx,
+	_, err = q.Exec(ctx,
 		`UPDATE service_templates SET name=$1, pricing_unit=$2, base_price=$3, estimated_duration_hours=$4, is_active=$5, sort_order=$6 WHERE id=$7`,
 		t.Name, t.PricingUnit, t.BasePrice, t.EstimatedDurationHours, t.IsActive, t.SortOrder, t.ID)
 	if err != nil {
@@ -223,6 +236,8 @@ func (s *ServiceTemplateService) UpdateTemplate(ctx context.Context, id uuid.UUI
 // --- Tenant Service Prices ---
 
 func (s *ServiceTemplateService) SetTenantPrice(ctx context.Context, tenantID uuid.UUID, req domain.SetTenantServicePriceRequest) (*domain.TenantServicePrice, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	templateID, err := uuid.Parse(req.ServiceTemplateID)
 	if err != nil {
 		return nil, apperror.Validation("invalid service_template_id")
@@ -236,7 +251,7 @@ func (s *ServiceTemplateService) SetTenantPrice(ctx context.Context, tenantID uu
 		IsActive:          true,
 	}
 
-	_, err = s.db.Exec(ctx,
+	_, err = q.Exec(ctx,
 		`INSERT INTO tenant_service_prices (id, tenant_id, service_template_id, price, is_active)
 		 VALUES ($1, $2, $3, $4, $5)
 		 ON CONFLICT (tenant_id, service_template_id) DO UPDATE SET price = $4, is_active = $5`,
@@ -249,7 +264,9 @@ func (s *ServiceTemplateService) SetTenantPrice(ctx context.Context, tenantID uu
 }
 
 func (s *ServiceTemplateService) GetServicesWithPrices(ctx context.Context, tenantID uuid.UUID) ([]domain.ServiceWithPrice, error) {
-	rows, err := s.db.Query(ctx,
+	q := middleware.GetQuerier(ctx, s.db)
+
+	rows, err := q.Query(ctx,
 		`SELECT st.id, st.category_id, st.name, st.pricing_unit, st.base_price,
 		        st.estimated_duration_hours, st.is_active, st.sort_order, st.created_at,
 		        tsp.price
@@ -264,14 +281,14 @@ func (s *ServiceTemplateService) GetServicesWithPrices(ctx context.Context, tena
 
 	var services []domain.ServiceWithPrice
 	for rows.Next() {
-		var s domain.ServiceWithPrice
+		var svc domain.ServiceWithPrice
 		var tenantPrice *int64
-		if err := rows.Scan(&s.ID, &s.CategoryID, &s.Name, &s.PricingUnit, &s.BasePrice,
-			&s.EstimatedDurationHours, &s.IsActive, &s.SortOrder, &s.CreatedAt, &tenantPrice); err != nil {
+		if err := rows.Scan(&svc.ID, &svc.CategoryID, &svc.Name, &svc.PricingUnit, &svc.BasePrice,
+			&svc.EstimatedDurationHours, &svc.IsActive, &svc.SortOrder, &svc.CreatedAt, &tenantPrice); err != nil {
 			return nil, apperror.Internal("failed to scan service with price", err)
 		}
-		s.TenantPrice = tenantPrice
-		services = append(services, s)
+		svc.TenantPrice = tenantPrice
+		services = append(services, svc)
 	}
 
 	if services == nil {

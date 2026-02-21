@@ -7,6 +7,15 @@ import (
 	"github.com/bangun-ekosistem/service-api/internal/domain"
 )
 
+const (
+	// DefaultPage is the default page number when none is specified.
+	DefaultPage = 1
+	// DefaultPerPage is the default number of items per page.
+	DefaultPerPage = 20
+	// MaxPerPage is the maximum allowed items per page to prevent excessive queries.
+	MaxPerPage = 100
+)
+
 type Params struct {
 	Page    int
 	PerPage int
@@ -14,8 +23,8 @@ type Params struct {
 
 func ParseFromRequest(r *http.Request) Params {
 	p := Params{
-		Page:    1,
-		PerPage: 20,
+		Page:    DefaultPage,
+		PerPage: DefaultPerPage,
 	}
 
 	if page := r.URL.Query().Get("page"); page != "" {
@@ -30,8 +39,8 @@ func ParseFromRequest(r *http.Request) Params {
 		}
 	}
 
-	if p.PerPage > 100 {
-		p.PerPage = 100
+	if p.PerPage > MaxPerPage {
+		p.PerPage = MaxPerPage
 	}
 
 	return p

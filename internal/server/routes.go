@@ -10,10 +10,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/bangun-ekosistem/service-api/internal/handler"
-	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/handler/admin"
 	"github.com/bangun-ekosistem/service-api/internal/handler/pos"
 	"github.com/bangun-ekosistem/service-api/internal/middleware"
+	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/response"
 	"github.com/bangun-ekosistem/service-api/internal/service"
 )
@@ -23,14 +23,31 @@ func (s *Server) RegisterRoutes() {
 	s.Router.Use(chimw.RealIP)
 	s.Router.Use(middleware.RequestLogging)
 	s.Router.Use(middleware.Recovery)
-	s.Router.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   strings.Split(s.Config.CORSAllowedOrigins, ","),
+	s.Router.Use(middleware.MaxBodySize)
+
+	// FIX 2: CORS - do not combine AllowCredentials with wildcard origin.
+	origins := strings.Split(s.Config.CORSAllowedOrigins, ",")
+	corsOpts := cors.Options{
+		AllowedOrigins:   origins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID"},
 		ExposedHeaders:   []string{"X-Request-ID"},
-		AllowCredentials: true,
 		MaxAge:           300,
-	}))
+	}
+
+	// Only enable AllowCredentials when origins are explicitly specified (not wildcard).
+	hasWildcard := false
+	for _, o := range origins {
+		if strings.TrimSpace(o) == "*" {
+			hasWildcard = true
+			break
+		}
+	}
+	if !hasWildcard {
+		corsOpts.AllowCredentials = true
+	}
+
+	s.Router.Use(cors.Handler(corsOpts))
 
 	// Services
 	authService := service.NewAuthService(s.DB, s.Config)
@@ -45,14 +62,14 @@ func (s *Server) RegisterRoutes() {
 	userService := service.NewUserService(s.DB)
 	memberService := service.NewMemberService(s.DB)
 
-	// Handlers
+	// Handlers (FIX 5: pass auditService to handlers that need it)
 	authHandler := handler.NewAuthHandler(authService, s.Validate)
-	tenantHandler := admin.NewTenantHandler(tenantService, s.Validate)
+	tenantHandler := admin.NewTenantHandler(tenantService, auditService, s.Validate)
 	outletHandler := admin.NewOutletHandler(outletService, s.Validate)
 	templateHandler := admin.NewServiceTemplateHandler(templateService, s.Validate)
-	configHandler := admin.NewConfigHandler(configService, s.Validate)
+	configHandler := admin.NewConfigHandler(configService, auditService, s.Validate)
 	featureFlagHandler := admin.NewFeatureFlagHandler(featureFlagService, s.Validate)
-	userHandler := admin.NewUserHandler(userService, s.Validate)
+	userHandler := admin.NewUserHandler(userService, auditService, s.Validate)
 	analyticsHandler := admin.NewAnalyticsHandler(analyticsService)
 	auditLogHandler := admin.NewAuditLogHandler(auditService)
 	membershipHandler := admin.NewMembershipHandler(memberService, s.Validate)

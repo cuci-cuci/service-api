@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/bangun-ekosistem/service-api/internal/domain"
+	"github.com/bangun-ekosistem/service-api/internal/middleware"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/response"
@@ -17,11 +18,12 @@ import (
 
 type TenantHandler struct {
 	svc      *service.TenantService
+	audit    *service.AuditService
 	validate *validator.Validate
 }
 
-func NewTenantHandler(svc *service.TenantService, validate *validator.Validate) *TenantHandler {
-	return &TenantHandler{svc: svc, validate: validate}
+func NewTenantHandler(svc *service.TenantService, audit *service.AuditService, validate *validator.Validate) *TenantHandler {
+	return &TenantHandler{svc: svc, audit: audit, validate: validate}
 }
 
 func (h *TenantHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -66,6 +68,16 @@ func (h *TenantHandler) Create(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, err)
 		return
 	}
+
+	// FIX 5: Audit log for tenant creation
+	userID := middleware.GetUserID(r.Context())
+	claims := middleware.GetClaims(r.Context())
+	actorName := ""
+	if claims != nil {
+		actorName = claims.Subject
+	}
+	h.audit.LogAction(r.Context(), userID, actorName, "create", "tenant", tenant.ID.String(), nil, tenant, nil)
+
 	response.JSON(w, http.StatusCreated, tenant)
 }
 
@@ -82,11 +94,24 @@ func (h *TenantHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get old value for audit log
+	oldTenant, _ := h.svc.GetByID(r.Context(), id)
+
 	tenant, err := h.svc.Update(r.Context(), id, req)
 	if err != nil {
 		response.Error(w, err)
 		return
 	}
+
+	// FIX 5: Audit log for tenant update
+	userID := middleware.GetUserID(r.Context())
+	claims := middleware.GetClaims(r.Context())
+	actorName := ""
+	if claims != nil {
+		actorName = claims.Subject
+	}
+	h.audit.LogAction(r.Context(), userID, actorName, "update", "tenant", tenant.ID.String(), oldTenant, tenant, nil)
+
 	response.JSON(w, http.StatusOK, tenant)
 }
 

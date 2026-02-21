@@ -72,6 +72,12 @@ func (h *MembershipHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// FIX 4: Add validation for update request
+	if err := h.validate.Struct(req); err != nil {
+		response.ValidationError(w, validationErrors(err))
+		return
+	}
+
 	member, err := h.svc.Update(r.Context(), id, req)
 	if err != nil {
 		response.Error(w, err)

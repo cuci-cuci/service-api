@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bangun-ekosistem/service-api/internal/domain"
+	"github.com/bangun-ekosistem/service-api/internal/middleware"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
 )
@@ -24,6 +25,8 @@ func NewMemberService(db *pgxpool.Pool) *MemberService {
 }
 
 func (s *MemberService) List(ctx context.Context, tenantID *uuid.UUID, params pagination.Params) ([]domain.Member, int, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var total int
 	countQuery := "SELECT COUNT(*) FROM members"
 	listQuery := `SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, created_at FROM members`
@@ -35,7 +38,7 @@ func (s *MemberService) List(ctx context.Context, tenantID *uuid.UUID, params pa
 		args = append(args, *tenantID)
 	}
 
-	err := s.db.QueryRow(ctx, countQuery, args...).Scan(&total)
+	err := q.QueryRow(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		slog.Error("failed to count members", "error", err)
 		return nil, 0, apperror.Internal("failed to count members", err)
@@ -45,7 +48,7 @@ func (s *MemberService) List(ctx context.Context, tenantID *uuid.UUID, params pa
 	listQuery += " ORDER BY created_at DESC LIMIT $" + strconv.Itoa(argIdx) + " OFFSET $" + strconv.Itoa(argIdx+1)
 	args = append(args, params.PerPage, params.Offset())
 
-	rows, err := s.db.Query(ctx, listQuery, args...)
+	rows, err := q.Query(ctx, listQuery, args...)
 	if err != nil {
 		return nil, 0, apperror.Internal("failed to list members", err)
 	}
@@ -69,8 +72,10 @@ func (s *MemberService) List(ctx context.Context, tenantID *uuid.UUID, params pa
 }
 
 func (s *MemberService) Create(ctx context.Context, tenantID *uuid.UUID, req domain.CreateMemberRequest) (*domain.Member, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var exists bool
-	err := s.db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM members WHERE phone = $1)", req.Phone).Scan(&exists)
+	err := q.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM members WHERE phone = $1)", req.Phone).Scan(&exists)
 	if err != nil {
 		return nil, apperror.Internal("failed to check phone", err)
 	}
@@ -95,7 +100,7 @@ func (s *MemberService) Create(ctx context.Context, tenantID *uuid.UUID, req dom
 		CreatedAt:       time.Now(),
 	}
 
-	_, err = s.db.Exec(ctx,
+	_, err = q.Exec(ctx,
 		`INSERT INTO members (id, tenant_id, name, phone, email, tier, discount_percent, total_points, created_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		m.ID, m.TenantID, m.Name, m.Phone, m.Email, m.Tier, m.DiscountPercent, m.TotalPoints, m.CreatedAt)
@@ -107,8 +112,10 @@ func (s *MemberService) Create(ctx context.Context, tenantID *uuid.UUID, req dom
 }
 
 func (s *MemberService) Update(ctx context.Context, id uuid.UUID, req domain.UpdateMemberRequest) (*domain.Member, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var m domain.Member
-	err := s.db.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, created_at
 		 FROM members WHERE id = $1`, id).
 		Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier,
@@ -136,7 +143,7 @@ func (s *MemberService) Update(ctx context.Context, id uuid.UUID, req domain.Upd
 		m.DiscountPercent = *req.DiscountPercent
 	}
 
-	_, err = s.db.Exec(ctx,
+	_, err = q.Exec(ctx,
 		`UPDATE members SET name=$1, phone=$2, email=$3, tier=$4, discount_percent=$5 WHERE id=$6`,
 		m.Name, m.Phone, m.Email, m.Tier, m.DiscountPercent, m.ID)
 	if err != nil {
@@ -147,8 +154,10 @@ func (s *MemberService) Update(ctx context.Context, id uuid.UUID, req domain.Upd
 }
 
 func (s *MemberService) LookupByPhone(ctx context.Context, phone string) (*domain.Member, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var m domain.Member
-	err := s.db.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, created_at
 		 FROM members WHERE phone = $1`, phone).
 		Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier,
@@ -163,13 +172,15 @@ func (s *MemberService) LookupByPhone(ctx context.Context, phone string) (*domai
 }
 
 func (s *MemberService) GetTransactionsByTenant(ctx context.Context, tenantID uuid.UUID, params pagination.Params) ([]domain.Transaction, int, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var total int
-	err := s.db.QueryRow(ctx, "SELECT COUNT(*) FROM transactions WHERE tenant_id = $1", tenantID).Scan(&total)
+	err := q.QueryRow(ctx, "SELECT COUNT(*) FROM transactions WHERE tenant_id = $1", tenantID).Scan(&total)
 	if err != nil {
 		return nil, 0, apperror.Internal("failed to count transactions", err)
 	}
 
-	rows, err := s.db.Query(ctx,
+	rows, err := q.Query(ctx,
 		`SELECT id, tenant_id, outlet_id, local_order_number, customer_name, items, subtotal,
 		        discount_amount, tax_amount, total_amount, payment_status, payments, status,
 		        config_version_id, notes, created_by, created_at, synced_at

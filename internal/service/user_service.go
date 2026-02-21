@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bangun-ekosistem/service-api/internal/domain"
+	"github.com/bangun-ekosistem/service-api/internal/middleware"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
 )
@@ -22,14 +23,16 @@ func NewUserService(db *pgxpool.Pool) *UserService {
 }
 
 func (s *UserService) List(ctx context.Context, params pagination.Params) ([]domain.UserResponse, int, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var total int
-	err := s.db.QueryRow(ctx, "SELECT COUNT(*) FROM users").Scan(&total)
+	err := q.QueryRow(ctx, "SELECT COUNT(*) FROM users").Scan(&total)
 	if err != nil {
 		slog.Error("failed to count users", "error", err)
 		return nil, 0, apperror.Internal("failed to count users", err)
 	}
 
-	rows, err := s.db.Query(ctx,
+	rows, err := q.Query(ctx,
 		`SELECT id, email, name, role, tenant_id, is_active, created_at, updated_at
 		 FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
 		params.PerPage, params.Offset())
@@ -55,8 +58,10 @@ func (s *UserService) List(ctx context.Context, params pagination.Params) ([]dom
 }
 
 func (s *UserService) Create(ctx context.Context, req domain.CreateUserRequest) (*domain.UserResponse, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var exists bool
-	err := s.db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)", req.Email).Scan(&exists)
+	err := q.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)", req.Email).Scan(&exists)
 	if err != nil {
 		return nil, apperror.Internal("failed to check email", err)
 	}
@@ -87,7 +92,7 @@ func (s *UserService) Create(ctx context.Context, req domain.CreateUserRequest) 
 		UpdatedAt:    now,
 	}
 
-	_, err = s.db.Exec(ctx,
+	_, err = q.Exec(ctx,
 		`INSERT INTO users (id, email, name, password_hash, role, tenant_id, is_active, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		user.ID, user.Email, user.Name, user.PasswordHash, user.Role, user.TenantID, user.IsActive, user.CreatedAt, user.UpdatedAt)
@@ -100,8 +105,10 @@ func (s *UserService) Create(ctx context.Context, req domain.CreateUserRequest) 
 }
 
 func (s *UserService) GetByID(ctx context.Context, id uuid.UUID) (*domain.UserResponse, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var u domain.UserResponse
-	err := s.db.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT id, email, name, role, tenant_id, is_active, created_at, updated_at
 		 FROM users WHERE id = $1`, id).
 		Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.TenantID, &u.IsActive, &u.CreatedAt, &u.UpdatedAt)

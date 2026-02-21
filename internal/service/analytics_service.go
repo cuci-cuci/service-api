@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bangun-ekosistem/service-api/internal/domain"
+	"github.com/bangun-ekosistem/service-api/internal/middleware"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 )
 
@@ -19,6 +20,8 @@ func NewAnalyticsService(db *pgxpool.Pool) *AnalyticsService {
 }
 
 func (s *AnalyticsService) RevenueByTenant(ctx context.Context, startDate, endDate string) ([]domain.RevenueByTenantResponse, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	query := `
 		SELECT t.tenant_id, te.name as tenant_name,
 		       COALESCE(SUM(t.total_amount), 0) as revenue,
@@ -43,7 +46,7 @@ func (s *AnalyticsService) RevenueByTenant(ctx context.Context, startDate, endDa
 
 	query += " GROUP BY t.tenant_id, te.name ORDER BY revenue DESC"
 
-	rows, err := s.db.Query(ctx, query, args...)
+	rows, err := q.Query(ctx, query, args...)
 	if err != nil {
 		return nil, apperror.Internal("failed to query revenue", err)
 	}
@@ -66,6 +69,8 @@ func (s *AnalyticsService) RevenueByTenant(ctx context.Context, startDate, endDa
 }
 
 func (s *AnalyticsService) TransactionStats(ctx context.Context, startDate, endDate string) (*domain.TransactionStatsResponse, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	query := `
 		SELECT COUNT(id) as total_transactions,
 		       COALESCE(SUM(total_amount), 0) as total_revenue,
@@ -88,7 +93,7 @@ func (s *AnalyticsService) TransactionStats(ctx context.Context, startDate, endD
 	}
 
 	var stats domain.TransactionStatsResponse
-	err := s.db.QueryRow(ctx, query, args...).
+	err := q.QueryRow(ctx, query, args...).
 		Scan(&stats.TotalTransactions, &stats.TotalRevenue, &stats.AvgTransaction)
 	if err != nil {
 		return nil, apperror.Internal("failed to query transaction stats", err)

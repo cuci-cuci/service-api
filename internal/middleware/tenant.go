@@ -2,18 +2,21 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
+	"github.com/bangun-ekosistem/service-api/internal/pkg/db"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/response"
 )
 
 type contextKeyDB string
 
-const ContextKeyDBConn contextKeyDB = "db_conn"
+const ContextKeyDBTx contextKeyDB = "db_tx"
 
 func TenantIsolation(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -36,8 +39,11 @@ func TenantIsolation(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Use fmt.Sprintf for SET LOCAL because PostgreSQL SET does not support
+			// parameterized placeholders ($1). These values come from JWT claims
+			// (trusted, server-side generated), NOT from user input.
 			if role == "superadmin" {
-				if _, err := tx.Exec(r.Context(), "SET LOCAL app.current_role = 'superadmin'"); err != nil {
+				if _, err := tx.Exec(r.Context(), `SET LOCAL "app.current_role" = 'superadmin'`); err != nil {
 					_ = tx.Rollback(r.Context())
 					slog.Error("failed to set role", "error", err)
 					response.Error(w, apperror.Internal("failed to set session role", err))
@@ -49,13 +55,13 @@ func TenantIsolation(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 					response.Error(w, apperror.Forbidden("tenant context required"))
 					return
 				}
-				if _, err := tx.Exec(r.Context(), "SET LOCAL app.current_tenant_id = $1", tenantID.String()); err != nil {
+				if _, err := tx.Exec(r.Context(), fmt.Sprintf(`SET LOCAL "app.current_tenant_id" = '%s'`, tenantID.String())); err != nil {
 					_ = tx.Rollback(r.Context())
 					slog.Error("failed to set tenant_id", "error", err)
 					response.Error(w, apperror.Internal("failed to set tenant context", err))
 					return
 				}
-				if _, err := tx.Exec(r.Context(), "SET LOCAL app.current_role = $1", role); err != nil {
+				if _, err := tx.Exec(r.Context(), fmt.Sprintf(`SET LOCAL "app.current_role" = '%s'`, role)); err != nil {
 					_ = tx.Rollback(r.Context())
 					slog.Error("failed to set role", "error", err)
 					response.Error(w, apperror.Internal("failed to set session role", err))
@@ -63,7 +69,7 @@ func TenantIsolation(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 				}
 			}
 
-			ctx := context.WithValue(r.Context(), ContextKeyDBConn, tx)
+			ctx := context.WithValue(r.Context(), ContextKeyDBTx, tx)
 			next.ServeHTTP(w, r.WithContext(ctx))
 
 			if err := tx.Commit(r.Context()); err != nil {
@@ -73,7 +79,13 @@ func TenantIsolation(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 	}
 }
 
-func GetDBTx(ctx context.Context) *pgxpool.Pool {
-	// This is a fallback; in practice the tenant middleware injects a tx.
-	return nil
+// GetQuerier returns the transaction from context if available (set by
+// TenantIsolation middleware), otherwise returns the provided fallback
+// querier (typically the pool). This allows services to transparently
+// use RLS-scoped transactions when the middleware is active.
+func GetQuerier(ctx context.Context, fallback db.Querier) db.Querier {
+	if tx, ok := ctx.Value(ContextKeyDBTx).(pgx.Tx); ok {
+		return tx
+	}
+	return fallback
 }

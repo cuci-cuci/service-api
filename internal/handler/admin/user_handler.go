@@ -7,6 +7,7 @@ import (
 	"github.com/go-playground/validator/v10"
 
 	"github.com/bangun-ekosistem/service-api/internal/domain"
+	"github.com/bangun-ekosistem/service-api/internal/middleware"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/response"
@@ -15,11 +16,12 @@ import (
 
 type UserHandler struct {
 	svc      *service.UserService
+	audit    *service.AuditService
 	validate *validator.Validate
 }
 
-func NewUserHandler(svc *service.UserService, validate *validator.Validate) *UserHandler {
-	return &UserHandler{svc: svc, validate: validate}
+func NewUserHandler(svc *service.UserService, audit *service.AuditService, validate *validator.Validate) *UserHandler {
+	return &UserHandler{svc: svc, audit: audit, validate: validate}
 }
 
 func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -49,5 +51,15 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, err)
 		return
 	}
+
+	// FIX 5: Audit log for user creation
+	actorID := middleware.GetUserID(r.Context())
+	claims := middleware.GetClaims(r.Context())
+	actorName := ""
+	if claims != nil {
+		actorName = claims.Subject
+	}
+	h.audit.LogAction(r.Context(), actorID, actorName, "create", "user", user.ID.String(), nil, user, user.TenantID)
+
 	response.JSON(w, http.StatusCreated, user)
 }

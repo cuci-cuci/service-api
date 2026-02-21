@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bangun-ekosistem/service-api/internal/domain"
+	"github.com/bangun-ekosistem/service-api/internal/middleware"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
 )
@@ -23,14 +24,16 @@ func NewOutletService(db *pgxpool.Pool) *OutletService {
 }
 
 func (s *OutletService) ListByTenant(ctx context.Context, tenantID uuid.UUID, params pagination.Params) ([]domain.Outlet, int, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var total int
-	err := s.db.QueryRow(ctx, "SELECT COUNT(*) FROM outlets WHERE tenant_id = $1", tenantID).Scan(&total)
+	err := q.QueryRow(ctx, "SELECT COUNT(*) FROM outlets WHERE tenant_id = $1", tenantID).Scan(&total)
 	if err != nil {
 		slog.Error("failed to count outlets", "error", err)
 		return nil, 0, apperror.Internal("failed to count outlets", err)
 	}
 
-	rows, err := s.db.Query(ctx,
+	rows, err := q.Query(ctx,
 		`SELECT id, tenant_id, name, address, phone, is_active, created_at, updated_at
 		 FROM outlets WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
 		tenantID, params.PerPage, params.Offset())
@@ -57,8 +60,10 @@ func (s *OutletService) ListByTenant(ctx context.Context, tenantID uuid.UUID, pa
 }
 
 func (s *OutletService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Outlet, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var o domain.Outlet
-	err := s.db.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT id, tenant_id, name, address, phone, is_active, created_at, updated_at
 		 FROM outlets WHERE id = $1`, id).
 		Scan(&o.ID, &o.TenantID, &o.Name, &o.Address, &o.Phone, &o.IsActive, &o.CreatedAt, &o.UpdatedAt)
@@ -72,6 +77,8 @@ func (s *OutletService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Outl
 }
 
 func (s *OutletService) Create(ctx context.Context, tenantID uuid.UUID, req domain.CreateOutletRequest) (*domain.Outlet, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	o := domain.Outlet{
 		ID:        uuid.New(),
 		TenantID:  tenantID,
@@ -83,7 +90,7 @@ func (s *OutletService) Create(ctx context.Context, tenantID uuid.UUID, req doma
 		UpdatedAt: time.Now(),
 	}
 
-	_, err := s.db.Exec(ctx,
+	_, err := q.Exec(ctx,
 		`INSERT INTO outlets (id, tenant_id, name, address, phone, is_active, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		o.ID, o.TenantID, o.Name, o.Address, o.Phone, o.IsActive, o.CreatedAt, o.UpdatedAt)
@@ -95,6 +102,8 @@ func (s *OutletService) Create(ctx context.Context, tenantID uuid.UUID, req doma
 }
 
 func (s *OutletService) Update(ctx context.Context, id uuid.UUID, req domain.UpdateOutletRequest) (*domain.Outlet, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	o, err := s.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -114,7 +123,7 @@ func (s *OutletService) Update(ctx context.Context, id uuid.UUID, req domain.Upd
 	}
 	o.UpdatedAt = time.Now()
 
-	_, err = s.db.Exec(ctx,
+	_, err = q.Exec(ctx,
 		`UPDATE outlets SET name = $1, address = $2, phone = $3, is_active = $4, updated_at = $5 WHERE id = $6`,
 		o.Name, o.Address, o.Phone, o.IsActive, o.UpdatedAt, o.ID)
 	if err != nil {

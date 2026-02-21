@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bangun-ekosistem/service-api/internal/domain"
+	"github.com/bangun-ekosistem/service-api/internal/middleware"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
 )
@@ -23,14 +24,16 @@ func NewTenantService(db *pgxpool.Pool) *TenantService {
 }
 
 func (s *TenantService) List(ctx context.Context, params pagination.Params) ([]domain.Tenant, int, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var total int
-	err := s.db.QueryRow(ctx, "SELECT COUNT(*) FROM tenants").Scan(&total)
+	err := q.QueryRow(ctx, "SELECT COUNT(*) FROM tenants").Scan(&total)
 	if err != nil {
 		slog.Error("failed to count tenants", "error", err)
 		return nil, 0, apperror.Internal("failed to count tenants", err)
 	}
 
-	rows, err := s.db.Query(ctx,
+	rows, err := q.Query(ctx,
 		`SELECT id, name, slug, is_active, created_at, updated_at
 		 FROM tenants ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
 		params.PerPage, params.Offset())
@@ -57,8 +60,10 @@ func (s *TenantService) List(ctx context.Context, params pagination.Params) ([]d
 }
 
 func (s *TenantService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Tenant, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var t domain.Tenant
-	err := s.db.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT id, name, slug, is_active, created_at, updated_at
 		 FROM tenants WHERE id = $1`, id).
 		Scan(&t.ID, &t.Name, &t.Slug, &t.IsActive, &t.CreatedAt, &t.UpdatedAt)
@@ -72,8 +77,10 @@ func (s *TenantService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Tena
 }
 
 func (s *TenantService) Create(ctx context.Context, req domain.CreateTenantRequest) (*domain.Tenant, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	var exists bool
-	err := s.db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM tenants WHERE slug = $1)", req.Slug).Scan(&exists)
+	err := q.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM tenants WHERE slug = $1)", req.Slug).Scan(&exists)
 	if err != nil {
 		return nil, apperror.Internal("failed to check slug", err)
 	}
@@ -90,7 +97,7 @@ func (s *TenantService) Create(ctx context.Context, req domain.CreateTenantReque
 		UpdatedAt: time.Now(),
 	}
 
-	_, err = s.db.Exec(ctx,
+	_, err = q.Exec(ctx,
 		`INSERT INTO tenants (id, name, slug, is_active, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6)`,
 		t.ID, t.Name, t.Slug, t.IsActive, t.CreatedAt, t.UpdatedAt)
@@ -102,6 +109,8 @@ func (s *TenantService) Create(ctx context.Context, req domain.CreateTenantReque
 }
 
 func (s *TenantService) Update(ctx context.Context, id uuid.UUID, req domain.UpdateTenantRequest) (*domain.Tenant, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
 	t, err := s.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -115,7 +124,7 @@ func (s *TenantService) Update(ctx context.Context, id uuid.UUID, req domain.Upd
 	}
 	t.UpdatedAt = time.Now()
 
-	_, err = s.db.Exec(ctx,
+	_, err = q.Exec(ctx,
 		`UPDATE tenants SET name = $1, is_active = $2, updated_at = $3 WHERE id = $4`,
 		t.Name, t.IsActive, t.UpdatedAt, t.ID)
 	if err != nil {
