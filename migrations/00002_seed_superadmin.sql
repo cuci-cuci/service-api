@@ -8,7 +8,7 @@ VALUES (
     'a0000000-0000-0000-0000-000000000001',
     'admin@laundry.app',
     'Super Admin',
-    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',
+    '$2y$10$/yVI6BRPIWhSL4JQgzhifeIF30fR11JeoTPewWHvlcwc.C/dzlKHK',
     'superadmin',
     NULL,
     true,
