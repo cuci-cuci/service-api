@@ -1,0 +1,1509 @@
+openapi: 3.1.0
+info:
+  title: Laundry SaaS API
+  description: Multi-tenant laundry ecosystem backend API
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+security: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    APIError:
+      type: object
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties:
+            type: string
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+        per_page:
+          type: integer
+        total:
+          type: integer
+        total_pages:
+          type: integer
+
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          type: string
+          enum: [superadmin, tenant_owner, cashier]
+        tenant_id:
+          type: string
+          format: uuid
+          nullable: true
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Outlet:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        address:
+          type: string
+        phone:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ServiceCategory:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        icon:
+          type: string
+        sort_order:
+          type: integer
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    ServiceTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        pricing_unit:
+          type: string
+          enum: [kg, pcs, meter, pair, sqm]
+        base_price:
+          type: integer
+          format: int64
+        estimated_duration_hours:
+          type: integer
+        is_active:
+          type: boolean
+        sort_order:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    ServiceWithPrice:
+      allOf:
+        - $ref: '#/components/schemas/ServiceTemplate'
+        - type: object
+          properties:
+            tenant_price:
+              type: integer
+              format: int64
+              nullable: true
+
+    ConfigVersion:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        data:
+          type: object
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+
+    FeatureFlag:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        description:
+          type: string
+        default_enabled:
+          type: boolean
+
+    Member:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        tier:
+          type: string
+          enum: [bronze, silver, gold, platinum]
+        discount_percent:
+          type: integer
+        total_points:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        outlet_id:
+          type: string
+          format: uuid
+        local_order_number:
+          type: string
+        customer_name:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            type: object
+        subtotal:
+          type: integer
+          format: int64
+        discount_amount:
+          type: integer
+          format: int64
+        tax_amount:
+          type: integer
+          format: int64
+        total_amount:
+          type: integer
+          format: int64
+        payment_status:
+          type: string
+        payments:
+          type: array
+          items:
+            type: object
+        status:
+          type: string
+        config_version_id:
+          type: string
+          format: uuid
+        notes:
+          type: string
+          nullable: true
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        synced_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        actor_id:
+          type: string
+          format: uuid
+        actor_name:
+          type: string
+        action:
+          type: string
+        entity_type:
+          type: string
+        entity_id:
+          type: string
+        old_value:
+          type: object
+          nullable: true
+        new_value:
+          type: object
+          nullable: true
+        tenant_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/User'
+
+    SyncUploadResult:
+      type: object
+      properties:
+        received:
+          type: integer
+        inserted:
+          type: integer
+        skipped:
+          type: integer
+
+    SyncDownloadResponse:
+      type: object
+      properties:
+        config_version:
+          type: integer
+        config:
+          $ref: '#/components/schemas/ConfigVersion'
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceWithPrice'
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceCategory'
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/Member'
+
+    RevenueByTenant:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        tenant_name:
+          type: string
+        revenue:
+          type: integer
+          format: int64
+        transaction_count:
+          type: integer
+
+    TransactionStats:
+      type: object
+      properties:
+        total_transactions:
+          type: integer
+        total_revenue:
+          type: integer
+          format: int64
+        avg_transaction:
+          type: integer
+          format: int64
+
+    SyncHealth:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        last_sync:
+          type: string
+          format: date-time
+          nullable: true
+        last_sync_status:
+          type: string
+        total_sessions:
+          type: integer
+        recent_sessions:
+          type: array
+          items:
+            type: object
+
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      tags: [Health]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: ok
+
+  /api/v1/auth/login:
+    post:
+      summary: Login
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 6
+      responses:
+        "200":
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TokenResponse'
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+
+  /api/v1/auth/refresh:
+    post:
+      summary: Refresh token
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        "200":
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TokenResponse'
+        "401":
+          description: Invalid refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+
+  /api/v1/admin/tenants:
+    get:
+      summary: List tenants
+      tags: [Tenants]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Tenant list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Tenant'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+    post:
+      summary: Create tenant
+      tags: [Tenants]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, slug]
+              properties:
+                name:
+                  type: string
+                slug:
+                  type: string
+      responses:
+        "201":
+          description: Tenant created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Tenant'
+        "409":
+          description: Slug conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+
+  /api/v1/admin/tenants/{id}:
+    get:
+      summary: Get tenant by ID
+      tags: [Tenants]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Tenant found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Tenant'
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+    put:
+      summary: Update tenant
+      tags: [Tenants]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                is_active:
+                  type: boolean
+      responses:
+        "200":
+          description: Tenant updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Tenant'
+
+  /api/v1/admin/tenants/{id}/outlets:
+    get:
+      summary: List outlets for tenant
+      tags: [Outlets]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Outlet list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Outlet'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+    post:
+      summary: Create outlet for tenant
+      tags: [Outlets]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                address:
+                  type: string
+                phone:
+                  type: string
+      responses:
+        "201":
+          description: Outlet created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Outlet'
+
+  /api/v1/admin/tenants/{id}/config:
+    get:
+      summary: Get current config for tenant
+      tags: [Config]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ConfigVersion'
+
+  /api/v1/admin/tenants/{id}/config/push:
+    post:
+      summary: Push config to tenant
+      tags: [Config]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "201":
+          description: Config pushed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ConfigVersion'
+
+  /api/v1/admin/tenants/{id}/feature-flags:
+    get:
+      summary: Get feature flags for tenant
+      tags: [Feature Flags]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Tenant feature flags
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      allOf:
+                        - $ref: '#/components/schemas/FeatureFlag'
+                        - type: object
+                          properties:
+                            enabled:
+                              type: boolean
+    put:
+      summary: Toggle feature flag for tenant
+      tags: [Feature Flags]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: flag_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+      responses:
+        "204":
+          description: Flag toggled
+
+  /api/v1/admin/tenants/{id}/sync-health:
+    get:
+      summary: Get sync health for tenant
+      tags: [Sync]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Sync health
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SyncHealth'
+
+  /api/v1/admin/outlets/{id}:
+    get:
+      summary: Get outlet by ID
+      tags: [Outlets]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Outlet found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Outlet'
+    put:
+      summary: Update outlet
+      tags: [Outlets]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                address:
+                  type: string
+                phone:
+                  type: string
+                is_active:
+                  type: boolean
+      responses:
+        "200":
+          description: Outlet updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Outlet'
+
+  /api/v1/admin/users:
+    get:
+      summary: List users (superadmin)
+      tags: [Users]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+    post:
+      summary: Create user (superadmin)
+      tags: [Users]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, name, role, tenant_id]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                name:
+                  type: string
+                role:
+                  type: string
+                  enum: [tenant_owner, cashier]
+                tenant_id:
+                  type: string
+                  format: uuid
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/User'
+
+  /api/v1/admin/service-categories:
+    get:
+      summary: List service categories
+      tags: [Services]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Category list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServiceCategory'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+    post:
+      summary: Create service category
+      tags: [Services]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                icon:
+                  type: string
+                sort_order:
+                  type: integer
+      responses:
+        "201":
+          description: Category created
+
+  /api/v1/admin/service-categories/{id}:
+    put:
+      summary: Update service category
+      tags: [Services]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                icon:
+                  type: string
+                sort_order:
+                  type: integer
+                is_active:
+                  type: boolean
+      responses:
+        "200":
+          description: Category updated
+
+  /api/v1/admin/service-templates:
+    get:
+      summary: List service templates
+      tags: [Services]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Template list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServiceTemplate'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+    post:
+      summary: Create service template
+      tags: [Services]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category_id, name, pricing_unit, base_price]
+              properties:
+                category_id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                pricing_unit:
+                  type: string
+                  enum: [kg, pcs, meter, pair, sqm]
+                base_price:
+                  type: integer
+                  format: int64
+                estimated_duration_hours:
+                  type: integer
+                sort_order:
+                  type: integer
+      responses:
+        "201":
+          description: Template created
+
+  /api/v1/admin/service-templates/{id}:
+    put:
+      summary: Update service template
+      tags: [Services]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                pricing_unit:
+                  type: string
+                base_price:
+                  type: integer
+                  format: int64
+                estimated_duration_hours:
+                  type: integer
+                sort_order:
+                  type: integer
+                is_active:
+                  type: boolean
+      responses:
+        "200":
+          description: Template updated
+
+  /api/v1/admin/feature-flags:
+    get:
+      summary: List global feature flags
+      tags: [Feature Flags]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Flag list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FeatureFlag'
+    post:
+      summary: Create feature flag
+      tags: [Feature Flags]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key]
+              properties:
+                key:
+                  type: string
+                description:
+                  type: string
+                default_enabled:
+                  type: boolean
+      responses:
+        "201":
+          description: Flag created
+
+  /api/v1/admin/feature-flags/{id}:
+    put:
+      summary: Update feature flag
+      tags: [Feature Flags]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description:
+                  type: string
+                default_enabled:
+                  type: boolean
+      responses:
+        "200":
+          description: Flag updated
+
+  /api/v1/admin/membership:
+    get:
+      summary: List members
+      tags: [Membership]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Member list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Member'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+    post:
+      summary: Create member
+      tags: [Membership]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, phone]
+              properties:
+                name:
+                  type: string
+                phone:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                tier:
+                  type: string
+                  enum: [bronze, silver, gold, platinum]
+                discount_percent:
+                  type: integer
+      responses:
+        "201":
+          description: Member created
+
+  /api/v1/admin/membership/{id}:
+    put:
+      summary: Update member
+      tags: [Membership]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                phone:
+                  type: string
+                email:
+                  type: string
+                tier:
+                  type: string
+                discount_percent:
+                  type: integer
+      responses:
+        "200":
+          description: Member updated
+
+  /api/v1/admin/analytics/revenue:
+    get:
+      summary: Revenue by tenant
+      tags: [Analytics]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Revenue data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RevenueByTenant'
+
+  /api/v1/admin/analytics/transactions:
+    get:
+      summary: Transaction statistics
+      tags: [Analytics]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Transaction stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TransactionStats'
+
+  /api/v1/admin/audit-logs:
+    get:
+      summary: List audit logs
+      tags: [Audit]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Audit log list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditLog'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /api/v1/admin/config/broadcast:
+    post:
+      summary: Broadcast config to tenants
+      tags: [Config]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenant_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                broadcast:
+                  type: boolean
+                  description: If true, push to all active tenants
+      responses:
+        "201":
+          description: Configs pushed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ConfigVersion'
+
+  /api/v1/pos/sync/upload:
+    post:
+      summary: Upload transactions from POS
+      tags: [POS Sync]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transactions]
+              properties:
+                transactions:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Transaction'
+      responses:
+        "200":
+          description: Upload result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SyncUploadResult'
+
+  /api/v1/pos/sync/download:
+    get:
+      summary: Download config and data for POS
+      tags: [POS Sync]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: current_config_version
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Sync download data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SyncDownloadResponse'
+
+  /api/v1/pos/transactions:
+    get:
+      summary: List own transactions
+      tags: [POS]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Transaction list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transaction'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /api/v1/pos/members/lookup:
+    get:
+      summary: Lookup member by phone
+      tags: [POS]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: phone
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Member found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Member'
+        "404":
+          description: Member not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
