@@ -13,7 +13,7 @@ type RefreshTokenRequest struct {
 
 type CreateTenantRequest struct {
 	Name string `json:"name" validate:"required"`
-	Slug string `json:"slug" validate:"required,alphanum"`
+	Slug string `json:"slug" validate:"required,alphanum,min=2,max=50"`
 }
 
 type UpdateTenantRequest struct {
