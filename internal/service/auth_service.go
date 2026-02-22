@@ -93,6 +93,37 @@ func (s *AuthService) Register(ctx context.Context, req domain.RegisterRequest) 
 		return nil, apperror.Internal("failed to create default outlet", err)
 	}
 
+	// Create default payment methods
+	paymentMethods := []struct {
+		Name string
+		Type string
+	}{
+		{"Tunai", "cash"},
+		{"QRIS", "qris"},
+		{"Transfer Bank", "bank_transfer"},
+	}
+	for i, pm := range paymentMethods {
+		_, err = tx.Exec(ctx,
+			`INSERT INTO payment_methods (id, tenant_id, name, type, is_active, sort_order, created_at)
+			 VALUES ($1, $2, $3, $4, true, $5, $6)`,
+			uuid.New(), tenantID, pm.Name, pm.Type, i+1, now)
+		if err != nil {
+			slog.Error("failed to insert payment method", "error", err, "name", pm.Name)
+			return nil, apperror.Internal("failed to create default payment methods", err)
+		}
+	}
+
+	// Copy all active service templates as tenant service prices (using base_price)
+	_, err = tx.Exec(ctx,
+		`INSERT INTO tenant_service_prices (id, tenant_id, service_template_id, price, is_active)
+		 SELECT uuid_generate_v4(), $1, id, base_price, true
+		 FROM service_templates WHERE is_active = true`,
+		tenantID)
+	if err != nil {
+		slog.Error("failed to seed tenant service prices", "error", err)
+		return nil, apperror.Internal("failed to create default service prices", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, apperror.Internal("failed to commit transaction", err)
 	}
