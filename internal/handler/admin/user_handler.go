@@ -56,11 +56,7 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// FIX 5: Audit log for user creation
 	actorID := middleware.GetUserID(r.Context())
-	claims := middleware.GetClaims(r.Context())
-	actorName := ""
-	if claims != nil {
-		actorName = claims.Subject
-	}
+	actorName := middleware.GetActorName(r.Context())
 	h.audit.LogAction(r.Context(), actorID, actorName, "create", "user", user.ID.String(), nil, user, user.TenantID)
 
 	response.JSON(w, http.StatusCreated, user)

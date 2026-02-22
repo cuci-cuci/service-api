@@ -5,7 +5,10 @@ import (
 	"log/slog"
 	"time"
 
+	"errors"
+
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bangun-ekosistem/service-api/internal/domain"
@@ -170,7 +173,10 @@ func (s *UserService) GetByID(ctx context.Context, id uuid.UUID) (*domain.UserRe
 		 FROM users WHERE id = $1`, id).
 		Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.TenantID, &u.IsActive, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
-		return nil, apperror.NotFound("user not found")
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperror.NotFound("user not found")
+		}
+		return nil, apperror.Internal("failed to fetch user", err)
 	}
 	return &u, nil
 }

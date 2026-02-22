@@ -32,7 +32,7 @@ func (h *CashierHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	params := pagination.ParseFromRequest(r)
-	users, total, err := h.svc.ListByTenantAndRole(r.Context(), tenantID, "cashier", params)
+	users, total, err := h.svc.ListByTenantAndRole(r.Context(), tenantID, domain.RoleCashier, params)
 	if err != nil {
 		response.Error(w, err)
 		return
@@ -63,7 +63,7 @@ func (h *CashierHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Email:    req.Email,
 		Password: req.Password,
 		Name:     req.Name,
-		Role:     "cashier",
+		Role:     domain.RoleCashier,
 		TenantID: tenantID.String(),
 	}
 

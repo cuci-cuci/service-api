@@ -218,36 +218,3 @@ func (s *ConfigService) ListAllConfigs(ctx context.Context) ([]TenantConfigListI
 	return configs, nil
 }
 
-func (s *ConfigService) GetConfigHistory(ctx context.Context, tenantID uuid.UUID, params pagination.Params) ([]domain.ConfigVersion, int, error) {
-	q := middleware.GetQuerier(ctx, s.db)
-
-	var total int
-	err := q.QueryRow(ctx, "SELECT COUNT(*) FROM config_versions WHERE tenant_id = $1", tenantID).Scan(&total)
-	if err != nil {
-		return nil, 0, apperror.Internal("failed to count configs", err)
-	}
-
-	rows, err := q.Query(ctx,
-		`SELECT id, tenant_id, version, data, created_by, created_at
-		 FROM config_versions WHERE tenant_id = $1 ORDER BY version DESC LIMIT $2 OFFSET $3`,
-		tenantID, params.PerPage, params.Offset())
-	if err != nil {
-		return nil, 0, apperror.Internal("failed to list configs", err)
-	}
-	defer rows.Close()
-
-	var configs []domain.ConfigVersion
-	for rows.Next() {
-		var cv domain.ConfigVersion
-		if err := rows.Scan(&cv.ID, &cv.TenantID, &cv.Version, &cv.Data, &cv.CreatedBy, &cv.CreatedAt); err != nil {
-			return nil, 0, apperror.Internal("failed to scan config", err)
-		}
-		configs = append(configs, cv)
-	}
-
-	if configs == nil {
-		configs = []domain.ConfigVersion{}
-	}
-
-	return configs, total, nil
-}

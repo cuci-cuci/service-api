@@ -96,3 +96,10 @@ func GetClaims(ctx context.Context) *Claims {
 	}
 	return nil
 }
+
+func GetActorName(ctx context.Context) string {
+	if c := GetClaims(ctx); c != nil {
+		return c.Subject
+	}
+	return ""
+}
