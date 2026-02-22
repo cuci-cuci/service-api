@@ -85,6 +85,8 @@ func (s *MemberService) Create(ctx context.Context, tenantID *uuid.UUID, req dom
 
 	tier := req.Tier
 	if tier == "" {
+		// TODO: Use cfg.DefaultMemberTier from config instead of hardcoded value.
+		// Service layer does not currently have access to config; inject via constructor when refactoring.
 		tier = "bronze"
 	}
 

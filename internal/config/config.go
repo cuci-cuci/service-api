@@ -12,6 +12,13 @@ type Config struct {
 	JWTSecret          string `env:"JWT_SECRET,required"`
 	JWTExpiryHours     int    `env:"JWT_EXPIRY_HOURS" envDefault:"24"`
 	CORSAllowedOrigins string `env:"CORS_ALLOWED_ORIGINS" envDefault:"*"`
+	LogLevel           string `env:"LOG_LEVEL" envDefault:"info"`
+	MaxBodySize        int64  `env:"MAX_BODY_SIZE" envDefault:"1048576"`
+	ReadTimeoutSecs    int    `env:"READ_TIMEOUT_SECONDS" envDefault:"30"`
+	WriteTimeoutSecs   int    `env:"WRITE_TIMEOUT_SECONDS" envDefault:"60"`
+	DefaultPerPage     int    `env:"DEFAULT_PER_PAGE" envDefault:"20"`
+	MaxPerPage         int    `env:"MAX_PER_PAGE" envDefault:"100"`
+	DefaultMemberTier  string `env:"DEFAULT_MEMBER_TIER" envDefault:"bronze"`
 }
 
 func Load() (*Config, error) {

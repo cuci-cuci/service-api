@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bangun-ekosistem/service-api/internal/domain"
@@ -77,6 +78,49 @@ func (s *SyncMonitorService) GetGlobalHealth(ctx context.Context) (*GlobalSyncHe
 	}
 
 	return health, nil
+}
+
+type OutletSyncHealth struct {
+	OutletID       uuid.UUID  `json:"outlet_id"`
+	OutletName     string     `json:"outlet_name"`
+	TotalSessions  int        `json:"total_sessions"`
+	FailedSessions int        `json:"failed_sessions"`
+	LastSyncAt     *time.Time `json:"last_sync_at,omitempty"`
+}
+
+func (s *SyncMonitorService) GetOutletHealth(ctx context.Context) ([]OutletSyncHealth, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	rows, err := q.Query(ctx, `
+		SELECT o.id, o.name,
+			COUNT(ss.id) as total_sessions,
+			COUNT(ss.id) FILTER (WHERE ss.status = 'failed') as failed_sessions,
+			MAX(ss.completed_at) as last_sync_at
+		FROM outlets o
+		LEFT JOIN sync_sessions ss ON o.id = ss.outlet_id
+		WHERE o.is_active = true
+		GROUP BY o.id, o.name
+		ORDER BY o.name`)
+	if err != nil {
+		slog.Error("failed to query outlet health", "error", err)
+		return nil, apperror.Internal("failed to query outlet health", err)
+	}
+	defer rows.Close()
+
+	var results []OutletSyncHealth
+	for rows.Next() {
+		var h OutletSyncHealth
+		if err := rows.Scan(&h.OutletID, &h.OutletName, &h.TotalSessions, &h.FailedSessions, &h.LastSyncAt); err != nil {
+			return nil, apperror.Internal("failed to scan outlet health", err)
+		}
+		results = append(results, h)
+	}
+
+	if results == nil {
+		results = []OutletSyncHealth{}
+	}
+
+	return results, nil
 }
 
 func (s *SyncMonitorService) ListSessions(ctx context.Context, params pagination.Params) ([]domain.SyncSession, int, error) {

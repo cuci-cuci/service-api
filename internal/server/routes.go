@@ -252,6 +252,7 @@ func (s *Server) RegisterRoutes() {
 			// Sync monitor (superadmin only)
 			r.Route("/sync", func(r chi.Router) {
 				r.Use(middleware.RequireSuperadmin())
+				r.Get("/health/outlets", syncMonitorHandler.OutletHealth)
 				r.Get("/health", syncMonitorHandler.GlobalHealth)
 				r.Get("/sessions", syncMonitorHandler.ListSessions)
 			})

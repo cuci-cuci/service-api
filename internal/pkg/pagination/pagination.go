@@ -10,11 +10,24 @@ import (
 const (
 	// DefaultPage is the default page number when none is specified.
 	DefaultPage = 1
+)
+
+var (
 	// DefaultPerPage is the default number of items per page.
 	DefaultPerPage = 20
 	// MaxPerPage is the maximum allowed items per page to prevent excessive queries.
 	MaxPerPage = 100
 )
+
+// Init sets the pagination defaults from external configuration.
+func Init(defaultPerPage, maxPerPage int) {
+	if defaultPerPage > 0 {
+		DefaultPerPage = defaultPerPage
+	}
+	if maxPerPage > 0 {
+		MaxPerPage = maxPerPage
+	}
+}
 
 type Params struct {
 	Page    int

@@ -35,8 +35,8 @@ func NewServer(cfg *config.Config, db *pgxpool.Pool) *Server {
 	s.server = &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
 		Handler:      s.Router,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		ReadTimeout:  time.Duration(cfg.ReadTimeoutSecs) * time.Second,
+		WriteTimeout: time.Duration(cfg.WriteTimeoutSecs) * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
