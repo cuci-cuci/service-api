@@ -9,6 +9,7 @@ import (
 	"github.com/bangun-ekosistem/service-api/internal/domain"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/response"
+	"github.com/bangun-ekosistem/service-api/internal/pkg/validation"
 	"github.com/bangun-ekosistem/service-api/internal/service"
 )
 
@@ -29,13 +30,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.validate.Struct(req); err != nil {
-		errs := make(map[string]string)
-		if ve, ok := err.(validator.ValidationErrors); ok {
-			for _, fe := range ve {
-				errs[fe.Field()] = fe.Tag()
-			}
-		}
-		response.ValidationError(w, errs)
+		response.ValidationError(w, validation.Errors(err))
 		return
 	}
 
@@ -55,13 +50,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.validate.Struct(req); err != nil {
-		errs := make(map[string]string)
-		if ve, ok := err.(validator.ValidationErrors); ok {
-			for _, fe := range ve {
-				errs[fe.Field()] = fe.Tag()
-			}
-		}
-		response.ValidationError(w, errs)
+		response.ValidationError(w, validation.Errors(err))
 		return
 	}
 

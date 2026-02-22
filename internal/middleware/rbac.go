@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 
+	"github.com/bangun-ekosistem/service-api/internal/domain"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/response"
 )
@@ -26,5 +27,5 @@ func RequireRole(roles ...string) func(http.Handler) http.Handler {
 }
 
 func RequireSuperadmin() func(http.Handler) http.Handler {
-	return RequireRole("superadmin")
+	return RequireRole(domain.RoleSuperadmin)
 }

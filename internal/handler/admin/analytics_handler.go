@@ -35,7 +35,7 @@ func (h *AnalyticsHandler) RevenueByOutlet(w http.ResponseWriter, r *http.Reques
 	tenantIDStr := chi.URLParam(r, "id")
 	tenantID, err := uuid.Parse(tenantIDStr)
 	if err != nil {
-		response.Error(w, apperror.NewAppError(400, "invalid tenant UUID"))
+		response.Error(w, apperror.NewAppError(http.StatusBadRequest, "invalid tenant UUID"))
 		return
 	}
 

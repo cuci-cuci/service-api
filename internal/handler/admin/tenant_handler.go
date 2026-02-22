@@ -72,11 +72,7 @@ func (h *TenantHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// FIX 5: Audit log for tenant creation
 	userID := middleware.GetUserID(r.Context())
-	claims := middleware.GetClaims(r.Context())
-	actorName := ""
-	if claims != nil {
-		actorName = claims.Subject
-	}
+	actorName := middleware.GetActorName(r.Context())
 	h.audit.LogAction(r.Context(), userID, actorName, "create", "tenant", tenant.ID.String(), nil, tenant, nil)
 
 	response.JSON(w, http.StatusCreated, tenant)
@@ -96,11 +92,7 @@ func (h *TenantHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	// Audit log for tenant deletion
 	userID := middleware.GetUserID(r.Context())
-	claims := middleware.GetClaims(r.Context())
-	actorName := ""
-	if claims != nil {
-		actorName = claims.Subject
-	}
+	actorName := middleware.GetActorName(r.Context())
 	h.audit.LogAction(r.Context(), userID, actorName, "delete", "tenant", id.String(), nil, nil, nil)
 
 	response.NoContent(w)
@@ -130,11 +122,7 @@ func (h *TenantHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	// FIX 5: Audit log for tenant update
 	userID := middleware.GetUserID(r.Context())
-	claims := middleware.GetClaims(r.Context())
-	actorName := ""
-	if claims != nil {
-		actorName = claims.Subject
-	}
+	actorName := middleware.GetActorName(r.Context())
 	h.audit.LogAction(r.Context(), userID, actorName, "update", "tenant", tenant.ID.String(), oldTenant, tenant, nil)
 
 	response.JSON(w, http.StatusOK, tenant)

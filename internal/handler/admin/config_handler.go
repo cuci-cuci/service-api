@@ -56,11 +56,7 @@ func (h *ConfigHandler) PushConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// FIX 5: Audit log for config push
-	claims := middleware.GetClaims(r.Context())
-	actorName := ""
-	if claims != nil {
-		actorName = claims.Subject
-	}
+	actorName := middleware.GetActorName(r.Context())
 	h.audit.LogAction(r.Context(), userID, actorName, "push_config", "config_version", config.ID.String(), nil, config, &tenantID)
 
 	response.JSON(w, http.StatusCreated, config)

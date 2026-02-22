@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/google/uuid"
 
+	"github.com/bangun-ekosistem/service-api/internal/domain"
 	"github.com/bangun-ekosistem/service-api/internal/handler"
 	"github.com/bangun-ekosistem/service-api/internal/handler/admin"
 	"github.com/bangun-ekosistem/service-api/internal/handler/owner"
@@ -162,7 +163,7 @@ func (s *Server) RegisterRoutes() {
 
 			// Outlets
 			r.Route("/outlets/{id}", func(r chi.Router) {
-				r.Use(middleware.RequireRole("superadmin", "tenant_owner"))
+				r.Use(middleware.RequireRole(domain.RoleSuperadmin, domain.RoleTenantOwner))
 				r.Get("/", outletHandler.GetByID)
 				r.Put("/", outletHandler.Update)
 				r.Delete("/", outletHandler.Delete)
@@ -179,7 +180,7 @@ func (s *Server) RegisterRoutes() {
 
 			// Service categories
 			r.Route("/service-categories", func(r chi.Router) {
-				r.Use(middleware.RequireRole("superadmin", "tenant_owner"))
+				r.Use(middleware.RequireRole(domain.RoleSuperadmin, domain.RoleTenantOwner))
 				r.Get("/", templateHandler.ListCategories)
 				r.Post("/", templateHandler.CreateCategory)
 				r.Put("/{id}", templateHandler.UpdateCategory)
@@ -188,7 +189,7 @@ func (s *Server) RegisterRoutes() {
 
 			// Service templates
 			r.Route("/service-templates", func(r chi.Router) {
-				r.Use(middleware.RequireRole("superadmin", "tenant_owner"))
+				r.Use(middleware.RequireRole(domain.RoleSuperadmin, domain.RoleTenantOwner))
 				r.Get("/", templateHandler.ListTemplates)
 				r.Post("/", templateHandler.CreateTemplate)
 				r.Put("/{id}", templateHandler.UpdateTemplate)
@@ -210,7 +211,7 @@ func (s *Server) RegisterRoutes() {
 
 			// Membership
 			r.Route("/membership", func(r chi.Router) {
-				r.Use(middleware.RequireRole("superadmin", "tenant_owner"))
+				r.Use(middleware.RequireRole(domain.RoleSuperadmin, domain.RoleTenantOwner))
 				r.Get("/", membershipHandler.List)
 				r.Post("/", membershipHandler.Create)
 				r.Put("/{id}", membershipHandler.Update)
@@ -219,14 +220,14 @@ func (s *Server) RegisterRoutes() {
 
 			// Analytics
 			r.Route("/analytics", func(r chi.Router) {
-				r.Use(middleware.RequireRole("superadmin", "tenant_owner"))
+				r.Use(middleware.RequireRole(domain.RoleSuperadmin, domain.RoleTenantOwner))
 				r.Get("/revenue", analyticsHandler.Revenue)
 				r.Get("/transactions", analyticsHandler.TransactionStats)
 			})
 
 			// Audit logs
 			r.Route("/audit-logs", func(r chi.Router) {
-				r.Use(middleware.RequireRole("superadmin", "tenant_owner"))
+				r.Use(middleware.RequireRole(domain.RoleSuperadmin, domain.RoleTenantOwner))
 				r.Get("/", auditLogHandler.List)
 			})
 
@@ -263,22 +264,13 @@ func (s *Server) RegisterRoutes() {
 				r.Get("/", configHandler.ListAllConfigs)
 				r.Post("/broadcast", configHandler.BroadcastConfig)
 			})
-
-			// Members alias (frontend calls /admin/members instead of /admin/membership)
-			r.Route("/members", func(r chi.Router) {
-				r.Use(middleware.RequireRole("superadmin", "tenant_owner"))
-				r.Get("/", membershipHandler.List)
-				r.Post("/", membershipHandler.Create)
-				r.Put("/{id}", membershipHandler.Update)
-				r.Delete("/{id}", membershipHandler.Delete)
-			})
 		})
 
 		// Owner routes (authenticated, tenant-scoped, tenant_owner only)
 		r.Route("/owner", func(r chi.Router) {
 			r.Use(middleware.JWTAuth(s.Config.JWTSecret))
 			r.Use(middleware.TenantIsolation(s.DB))
-			r.Use(middleware.RequireRole("tenant_owner"))
+			r.Use(middleware.RequireRole(domain.RoleTenantOwner))
 
 			// Outlets
 			r.Get("/outlets", ownerOutletHandler.List)
@@ -316,7 +308,7 @@ func (s *Server) RegisterRoutes() {
 		r.Route("/pos", func(r chi.Router) {
 			r.Use(middleware.JWTAuth(s.Config.JWTSecret))
 			r.Use(middleware.TenantIsolation(s.DB))
-			r.Use(middleware.RequireRole("tenant_owner", "cashier"))
+			r.Use(middleware.RequireRole(domain.RoleTenantOwner, domain.RoleCashier))
 
 			r.Post("/sync/upload", syncHandler.Upload)
 			r.Get("/sync/download", syncHandler.Download)

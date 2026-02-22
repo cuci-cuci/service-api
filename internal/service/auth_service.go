@@ -76,7 +76,7 @@ func (s *AuthService) Register(ctx context.Context, req domain.RegisterRequest) 
 	_, err = tx.Exec(ctx,
 		`INSERT INTO users (id, email, name, password_hash, role, tenant_id, is_active, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8)`,
-		userID, req.Email, req.OwnerName, string(passwordHash), "tenant_owner", tenantID, now, now)
+		userID, req.Email, req.OwnerName, string(passwordHash), domain.RoleTenantOwner, tenantID, now, now)
 	if err != nil {
 		slog.Error("failed to insert user", "error", err)
 		return nil, apperror.Internal("failed to create user", err)
@@ -133,7 +133,7 @@ func (s *AuthService) Register(ctx context.Context, req domain.RegisterRequest) 
 		Email:        req.Email,
 		Name:         req.OwnerName,
 		PasswordHash: string(passwordHash),
-		Role:         "tenant_owner",
+		Role:         domain.RoleTenantOwner,
 		TenantID:     &tenantID,
 		IsActive:     true,
 		CreatedAt:    now,
