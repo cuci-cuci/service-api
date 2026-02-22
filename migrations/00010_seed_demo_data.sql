@@ -92,7 +92,7 @@ VALUES (
     '{"storeName": "Laundry Bersih Cemerlang", "taxRate": 11, "currency": "IDR", "receiptFooter": "Terima kasih atas kepercayaan Anda!", "autoCloseShiftHours": 12}'::jsonb,
     'a1000001-0000-0000-0000-000000000001',
     NOW()
-) ON CONFLICT (id) DO NOTHING;
+) ON CONFLICT (tenant_id, version) DO NOTHING;
 
 -- Demo Transactions
 INSERT INTO transactions (id, tenant_id, outlet_id, local_order_number, customer_name, member_id, items, subtotal, discount_amount, tax_amount, total_amount, payment_status, payments, status, config_version_id, notes, created_by, created_at, synced_at)
