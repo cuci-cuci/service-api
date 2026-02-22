@@ -82,6 +82,17 @@ func (s *AuthService) Register(ctx context.Context, req domain.RegisterRequest) 
 		return nil, apperror.Internal("failed to create user", err)
 	}
 
+	// Create default outlet
+	outletID := uuid.New()
+	_, err = tx.Exec(ctx,
+		`INSERT INTO outlets (id, tenant_id, name, address, phone, is_active, created_at, updated_at)
+		 VALUES ($1, $2, $3, '', '', true, $4, $5)`,
+		outletID, tenantID, req.BusinessName+" - Pusat", now, now)
+	if err != nil {
+		slog.Error("failed to insert default outlet", "error", err)
+		return nil, apperror.Internal("failed to create default outlet", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, apperror.Internal("failed to commit transaction", err)
 	}
