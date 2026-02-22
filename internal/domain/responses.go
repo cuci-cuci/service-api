@@ -91,6 +91,15 @@ type SyncHealthResponse struct {
 	RecentSessions   []SyncSession `json:"recent_sessions"`
 }
 
+type OrderDetailResponse struct {
+	Order
+	Transaction  *Transaction     `json:"transaction,omitempty"`
+	StatusLogs   []OrderStatusLog `json:"status_logs"`
+	CustomerName *string          `json:"customer_name,omitempty"`
+	TotalAmount  int64            `json:"total_amount"`
+	OrderNumber  string           `json:"order_number"`
+}
+
 func ToUserResponse(u User) UserResponse {
 	return UserResponse{
 		ID:        u.ID,
