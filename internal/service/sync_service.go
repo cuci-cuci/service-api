@@ -137,6 +137,48 @@ func (s *SyncService) Download(ctx context.Context, tenantID uuid.UUID, currentV
 	}
 	resp.Members = members
 
+	// Get outlets
+	outletRows, err := q.Query(ctx,
+		`SELECT id, tenant_id, name, address, phone, is_active FROM outlets WHERE tenant_id = $1 AND is_active = true`, tenantID)
+	if err != nil {
+		return nil, apperror.Internal("failed to get outlets", err)
+	}
+	defer outletRows.Close()
+
+	var outlets []domain.Outlet
+	for outletRows.Next() {
+		var o domain.Outlet
+		if err := outletRows.Scan(&o.ID, &o.TenantID, &o.Name, &o.Address, &o.Phone, &o.IsActive); err != nil {
+			return nil, apperror.Internal("failed to scan outlet", err)
+		}
+		outlets = append(outlets, o)
+	}
+	if outlets == nil {
+		outlets = []domain.Outlet{}
+	}
+	resp.Outlets = outlets
+
+	// Get payment methods
+	pmRows, err := q.Query(ctx,
+		`SELECT id, tenant_id, name, type, is_active, sort_order, created_at FROM payment_methods WHERE tenant_id = $1 AND is_active = true ORDER BY sort_order`, tenantID)
+	if err != nil {
+		return nil, apperror.Internal("failed to get payment methods", err)
+	}
+	defer pmRows.Close()
+
+	var paymentMethods []domain.PaymentMethod
+	for pmRows.Next() {
+		var pm domain.PaymentMethod
+		if err := pmRows.Scan(&pm.ID, &pm.TenantID, &pm.Name, &pm.Type, &pm.IsActive, &pm.SortOrder, &pm.CreatedAt); err != nil {
+			return nil, apperror.Internal("failed to scan payment method", err)
+		}
+		paymentMethods = append(paymentMethods, pm)
+	}
+	if paymentMethods == nil {
+		paymentMethods = []domain.PaymentMethod{}
+	}
+	resp.PaymentMethods = paymentMethods
+
 	return resp, nil
 }
 

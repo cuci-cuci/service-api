@@ -26,6 +26,81 @@ func NewAuthService(db *pgxpool.Pool, cfg *config.Config) *AuthService {
 	return &AuthService{db: db, cfg: cfg}
 }
 
+func (s *AuthService) Register(ctx context.Context, req domain.RegisterRequest) (*domain.TokenResponse, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, apperror.Internal("failed to begin transaction", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Check if slug already exists
+	var slugExists bool
+	err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM tenants WHERE slug = $1)", req.Slug).Scan(&slugExists)
+	if err != nil {
+		return nil, apperror.Internal("failed to check slug", err)
+	}
+	if slugExists {
+		return nil, apperror.Validation("slug already taken")
+	}
+
+	// Check if email already exists
+	var emailExists bool
+	err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)", req.Email).Scan(&emailExists)
+	if err != nil {
+		return nil, apperror.Internal("failed to check email", err)
+	}
+	if emailExists {
+		return nil, apperror.Validation("email already registered")
+	}
+
+	// Insert tenant
+	tenantID := uuid.New()
+	now := time.Now()
+	_, err = tx.Exec(ctx,
+		`INSERT INTO tenants (id, name, slug, is_active, created_at, updated_at)
+		 VALUES ($1, $2, $3, true, $4, $5)`,
+		tenantID, req.BusinessName, req.Slug, now, now)
+	if err != nil {
+		slog.Error("failed to insert tenant", "error", err)
+		return nil, apperror.Internal("failed to create tenant", err)
+	}
+
+	// Hash password
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, apperror.Internal("failed to hash password", err)
+	}
+
+	// Insert user
+	userID := uuid.New()
+	_, err = tx.Exec(ctx,
+		`INSERT INTO users (id, email, name, password_hash, role, tenant_id, is_active, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8)`,
+		userID, req.Email, req.OwnerName, string(passwordHash), "tenant_owner", tenantID, now, now)
+	if err != nil {
+		slog.Error("failed to insert user", "error", err)
+		return nil, apperror.Internal("failed to create user", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, apperror.Internal("failed to commit transaction", err)
+	}
+
+	user := domain.User{
+		ID:           userID,
+		Email:        req.Email,
+		Name:         req.OwnerName,
+		PasswordHash: string(passwordHash),
+		Role:         "tenant_owner",
+		TenantID:     &tenantID,
+		IsActive:     true,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	return s.generateTokenPair(user)
+}
+
 func (s *AuthService) Login(ctx context.Context, req domain.LoginRequest) (*domain.TokenResponse, error) {
 	var user domain.User
 	err := s.db.QueryRow(ctx,

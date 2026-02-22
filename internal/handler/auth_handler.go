@@ -21,6 +21,32 @@ func NewAuthHandler(svc *service.AuthService, validate *validator.Validate) *Aut
 	return &AuthHandler{svc: svc, validate: validate}
 }
 
+func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
+	var req domain.RegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, apperror.Validation("invalid request body"))
+		return
+	}
+
+	if err := h.validate.Struct(req); err != nil {
+		errs := make(map[string]string)
+		if ve, ok := err.(validator.ValidationErrors); ok {
+			for _, fe := range ve {
+				errs[fe.Field()] = fe.Tag()
+			}
+		}
+		response.ValidationError(w, errs)
+		return
+	}
+
+	tokenResp, err := h.svc.Register(r.Context(), req)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.JSON(w, http.StatusCreated, tokenResp)
+}
+
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req domain.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

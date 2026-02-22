@@ -43,11 +43,13 @@ type UserResponse struct {
 }
 
 type SyncDownloadResponse struct {
-	ConfigVersion int               `json:"config_version"`
-	Config        *ConfigVersion    `json:"config,omitempty"`
-	Services      []ServiceWithPrice `json:"services"`
-	Categories    []ServiceCategory  `json:"categories"`
-	Members       []Member           `json:"members"`
+	ConfigVersion  int                `json:"config_version"`
+	Config         *ConfigVersion     `json:"config,omitempty"`
+	Services       []ServiceWithPrice `json:"services"`
+	Categories     []ServiceCategory  `json:"categories"`
+	Members        []Member           `json:"members"`
+	Outlets        []Outlet           `json:"outlets"`
+	PaymentMethods []PaymentMethod    `json:"payment_methods"`
 }
 
 type ServiceWithPrice struct {
@@ -58,6 +60,13 @@ type ServiceWithPrice struct {
 type RevenueByTenantResponse struct {
 	TenantID   uuid.UUID `json:"tenant_id"`
 	TenantName string    `json:"tenant_name"`
+	Revenue    int64     `json:"revenue"`
+	TxCount    int       `json:"transaction_count"`
+}
+
+type RevenueByOutletResponse struct {
+	OutletID   uuid.UUID `json:"outlet_id"`
+	OutletName string    `json:"outlet_name"`
 	Revenue    int64     `json:"revenue"`
 	TxCount    int       `json:"transaction_count"`
 }

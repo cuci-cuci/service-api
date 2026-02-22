@@ -125,3 +125,12 @@ type UpdateMemberRequest struct {
 type MemberLookupRequest struct {
 	Phone string `json:"phone" validate:"required"`
 }
+
+type RegisterRequest struct {
+	BusinessName string `json:"business_name" validate:"required,min=2,max=100"`
+	Slug         string `json:"slug" validate:"required,alphanum,min=2,max=50"`
+	Email        string `json:"email" validate:"required,email"`
+	Password     string `json:"password" validate:"required,min=8"`
+	Phone        string `json:"phone" validate:"omitempty"`
+	OwnerName    string `json:"owner_name" validate:"required,min=2"`
+}
