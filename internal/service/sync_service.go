@@ -63,33 +63,52 @@ func (s *SyncService) Upload(ctx context.Context, tenantID uuid.UUID, outletID u
 		slog.Error("failed to close batch", "error", err)
 	}
 
-	// Link transactions to open shifts
+	// Pre-fetch open shifts for this outlet to avoid N+1 queries
+	openShifts := make(map[uuid.UUID]uuid.UUID) // cashierID -> shiftID
+	shiftRows, err := q.Query(ctx,
+		`SELECT cashier_id, id FROM shifts WHERE outlet_id = $1 AND status = 'open'`, outletID)
+	if err == nil {
+		defer shiftRows.Close()
+		for shiftRows.Next() {
+			var cashierID, shiftID uuid.UUID
+			if err := shiftRows.Scan(&cashierID, &shiftID); err == nil {
+				openShifts[cashierID] = shiftID
+			}
+		}
+	}
+
+	// Link transactions to open shifts using pre-fetched map
+	shiftBatch := &pgx.Batch{}
 	for _, tx := range transactions {
 		var shiftID uuid.UUID
 		if tx.ShiftID != nil {
 			// Use the shift_id provided by the POS client
 			shiftID = *tx.ShiftID
+		} else if sid, ok := openShifts[tx.CreatedBy]; ok {
+			shiftID = sid
 		} else {
-			// Fallback: find open shift for this cashier/outlet
-			err := q.QueryRow(ctx,
-				`SELECT id FROM shifts WHERE cashier_id = $1 AND outlet_id = $2 AND status = 'open' LIMIT 1`,
-				tx.CreatedBy, outletID).Scan(&shiftID)
-			if err != nil {
-				continue
+			continue
+		}
+		shiftBatch.Queue(
+			`INSERT INTO shift_transactions (shift_id, transaction_id) VALUES ($1, $2) ON CONFLICT (shift_id, transaction_id) DO NOTHING`,
+			shiftID, tx.ID)
+	}
+	if shiftBatch.Len() > 0 {
+		sbr := q.SendBatch(ctx, shiftBatch)
+		for i := 0; i < shiftBatch.Len(); i++ {
+			if _, err := sbr.Exec(); err != nil {
+				slog.Error("failed to link transaction to shift", "error", err)
 			}
 		}
-		_, err := q.Exec(ctx,
-			`INSERT INTO shift_transactions (shift_id, transaction_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-			shiftID, tx.ID)
-		if err != nil {
-			slog.Error("failed to link transaction to shift", "transaction_id", tx.ID, "shift_id", shiftID, "error", err)
+		if err := sbr.Close(); err != nil {
+			slog.Error("failed to close shift batch", "error", err)
 		}
 	}
 
 	// Auto-create orders for newly inserted transactions
 	for _, tx := range transactions {
 		if err := s.orderSvc.CreateFromTransaction(ctx, tenantID, tx, tx.CreatedBy); err != nil {
-			slog.Error("failed to create order from transaction", "transaction_id", tx.ID, "error", err)
+			slog.Warn("failed to create order from transaction", "transaction_id", tx.ID, "error", err)
 		}
 	}
 
@@ -98,19 +117,19 @@ func (s *SyncService) Upload(ctx context.Context, tenantID uuid.UUID, outletID u
 		if tx.MemberID != nil {
 			_, err := s.memberSvc.UpdateSpending(ctx, *tx.MemberID, tx.TotalAmount)
 			if err != nil {
-				slog.Error("failed to update member spending", "member_id", tx.MemberID, "error", err)
+				slog.Warn("failed to update member spending", "member_id", tx.MemberID, "error", err)
 			}
 		}
 	}
 
 	// Record sync session
 	completedAt := time.Now()
-	_, err := q.Exec(ctx,
+	_, syncErr := q.Exec(ctx,
 		`INSERT INTO sync_sessions (id, tenant_id, outlet_id, direction, status, transaction_count, started_at, completed_at)
 		 VALUES ($1, $2, $3, 'upload', 'completed', $4, $5, $6)`,
 		uuid.New(), tenantID, outletID, len(transactions), startedAt, completedAt)
-	if err != nil {
-		slog.Error("failed to record sync session", "error", err)
+	if syncErr != nil {
+		slog.Error("failed to record sync session", "error", syncErr)
 	}
 
 	return &domain.SyncUploadResult{

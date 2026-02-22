@@ -18,6 +18,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/bangun-ekosistem/service-api/internal/config"
+	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
 	"github.com/bangun-ekosistem/service-api/internal/server"
 )
 
@@ -31,6 +32,9 @@ func main() {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+
+	// Initialize pagination defaults from config
+	pagination.Init(cfg.DefaultPerPage, cfg.MaxPerPage)
 
 	// Connect to PostgreSQL with pgx pool
 	ctx := context.Background()

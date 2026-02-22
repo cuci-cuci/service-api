@@ -13,6 +13,7 @@ import (
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/response"
+	"github.com/bangun-ekosistem/service-api/internal/pkg/validation"
 	"github.com/bangun-ekosistem/service-api/internal/service"
 )
 
@@ -140,11 +141,5 @@ func (h *TenantHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 func validationErrors(err error) map[string]string {
-	errs := make(map[string]string)
-	if ve, ok := err.(validator.ValidationErrors); ok {
-		for _, fe := range ve {
-			errs[fe.Field()] = fe.Tag()
-		}
-	}
-	return errs
+	return validation.Errors(err)
 }

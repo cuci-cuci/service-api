@@ -25,6 +25,15 @@ func (h *SyncMonitorHandler) GlobalHealth(w http.ResponseWriter, r *http.Request
 	response.JSON(w, http.StatusOK, health)
 }
 
+func (h *SyncMonitorHandler) OutletHealth(w http.ResponseWriter, r *http.Request) {
+	health, err := h.svc.GetOutletHealth(r.Context())
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, health)
+}
+
 func (h *SyncMonitorHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	params := pagination.ParseFromRequest(r)
 	sessions, total, err := h.svc.ListSessions(r.Context(), params)
