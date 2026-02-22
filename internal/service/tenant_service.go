@@ -108,6 +108,25 @@ func (s *TenantService) Create(ctx context.Context, req domain.CreateTenantReque
 	return &t, nil
 }
 
+func (s *TenantService) Delete(ctx context.Context, id uuid.UUID) error {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	_, err := s.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	// Soft delete — mark tenant as inactive
+	_, err = q.Exec(ctx,
+		`UPDATE tenants SET is_active = false, updated_at = $1 WHERE id = $2`,
+		time.Now(), id)
+	if err != nil {
+		return apperror.Internal("failed to delete tenant", err)
+	}
+
+	return nil
+}
+
 func (s *TenantService) Update(ctx context.Context, id uuid.UUID, req domain.UpdateTenantRequest) (*domain.Tenant, error) {
 	q := middleware.GetQuerier(ctx, s.db)
 

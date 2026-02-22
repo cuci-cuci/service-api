@@ -64,6 +64,8 @@ func (s *Server) RegisterRoutes() {
 	auditService := service.NewAuditService(s.DB)
 	analyticsService := service.NewAnalyticsService(s.DB)
 	userService := service.NewUserService(s.DB)
+	dashboardService := service.NewDashboardService(s.DB)
+	syncMonitorService := service.NewSyncMonitorService(s.DB)
 
 	// Handlers (FIX 5: pass auditService to handlers that need it)
 	authHandler := handler.NewAuthHandler(authService, s.Validate)
@@ -76,6 +78,8 @@ func (s *Server) RegisterRoutes() {
 	analyticsHandler := admin.NewAnalyticsHandler(analyticsService)
 	auditLogHandler := admin.NewAuditLogHandler(auditService)
 	membershipHandler := admin.NewMembershipHandler(memberService, s.Validate)
+	dashboardHandler := admin.NewDashboardHandler(dashboardService)
+	syncMonitorHandler := admin.NewSyncMonitorHandler(syncMonitorService)
 
 	paymentMethodService := service.NewPaymentMethodService(s.DB)
 
@@ -121,6 +125,7 @@ func (s *Server) RegisterRoutes() {
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", tenantHandler.GetByID)
 					r.Put("/", tenantHandler.Update)
+					r.Delete("/", tenantHandler.Delete)
 
 					// Outlets for tenant
 					r.Get("/outlets", outletHandler.ListByTenant)
@@ -191,7 +196,11 @@ func (s *Server) RegisterRoutes() {
 				r.Get("/", featureFlagHandler.ListFlags)
 				r.Post("/", featureFlagHandler.CreateFlag)
 				r.Put("/{id}", featureFlagHandler.UpdateFlag)
+				r.Get("/{id}/tenants", featureFlagHandler.GetFlagTenantOverrides)
 			})
+
+			// Tenant feature flag toggle
+			r.Post("/tenant-feature-flags", featureFlagHandler.ToggleTenantFlag)
 
 			// Membership
 			r.Route("/membership", func(r chi.Router) {
@@ -218,6 +227,41 @@ func (s *Server) RegisterRoutes() {
 			r.Route("/config", func(r chi.Router) {
 				r.Use(middleware.RequireSuperadmin())
 				r.Post("/broadcast", configHandler.BroadcastConfig)
+			})
+
+			// Dashboard (superadmin only)
+			r.Route("/dashboard", func(r chi.Router) {
+				r.Use(middleware.RequireSuperadmin())
+				r.Get("/stats", dashboardHandler.Stats)
+				r.Get("/revenue", dashboardHandler.Revenue)
+			})
+
+			// Transactions (admin view)
+			r.Route("/transactions", func(r chi.Router) {
+				r.Use(middleware.RequireSuperadmin())
+				r.Get("/", dashboardHandler.TransactionList)
+			})
+
+			// Sync monitor (superadmin only)
+			r.Route("/sync", func(r chi.Router) {
+				r.Use(middleware.RequireSuperadmin())
+				r.Get("/health", syncMonitorHandler.GlobalHealth)
+				r.Get("/sessions", syncMonitorHandler.ListSessions)
+			})
+
+			// Configs (list all tenant configs)
+			r.Route("/configs", func(r chi.Router) {
+				r.Use(middleware.RequireSuperadmin())
+				r.Get("/", configHandler.ListAllConfigs)
+				r.Post("/broadcast", configHandler.BroadcastConfig)
+			})
+
+			// Members alias (frontend calls /admin/members instead of /admin/membership)
+			r.Route("/members", func(r chi.Router) {
+				r.Use(middleware.RequireRole("superadmin", "tenant_owner"))
+				r.Get("/", membershipHandler.List)
+				r.Post("/", membershipHandler.Create)
+				r.Put("/{id}", membershipHandler.Update)
 			})
 		})
 

@@ -81,6 +81,30 @@ func (h *TenantHandler) Create(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusCreated, tenant)
 }
 
+func (h *TenantHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, apperror.NewAppError(http.StatusBadRequest, "invalid tenant ID"))
+		return
+	}
+
+	if svcErr := h.svc.Delete(r.Context(), id); svcErr != nil {
+		response.Error(w, svcErr)
+		return
+	}
+
+	// Audit log for tenant deletion
+	userID := middleware.GetUserID(r.Context())
+	claims := middleware.GetClaims(r.Context())
+	actorName := ""
+	if claims != nil {
+		actorName = claims.Subject
+	}
+	h.audit.LogAction(r.Context(), userID, actorName, "delete", "tenant", id.String(), nil, nil, nil)
+
+	response.NoContent(w)
+}
+
 func (h *TenantHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {

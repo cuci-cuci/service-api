@@ -175,6 +175,49 @@ func (s *ConfigService) BroadcastConfig(ctx context.Context, req domain.PushConf
 	return results, nil
 }
 
+type TenantConfigListItem struct {
+	ID         uuid.UUID       `json:"id"`
+	TenantID   uuid.UUID       `json:"tenant_id"`
+	TenantName string          `json:"tenant_name"`
+	Version    int             `json:"version"`
+	Data       json.RawMessage `json:"data"`
+	CreatedBy  uuid.UUID       `json:"created_by"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
+func (s *ConfigService) ListAllConfigs(ctx context.Context) ([]TenantConfigListItem, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	rows, err := q.Query(ctx,
+		`SELECT cv.id, cv.tenant_id, t.name, cv.version, cv.data, cv.created_by, cv.created_at
+		 FROM config_versions cv
+		 JOIN tenants t ON cv.tenant_id = t.id
+		 WHERE cv.version = (
+		     SELECT MAX(cv2.version) FROM config_versions cv2 WHERE cv2.tenant_id = cv.tenant_id
+		 )
+		 ORDER BY cv.created_at DESC`)
+	if err != nil {
+		slog.Error("failed to list all configs", "error", err)
+		return nil, apperror.Internal("failed to list configs", err)
+	}
+	defer rows.Close()
+
+	var configs []TenantConfigListItem
+	for rows.Next() {
+		var c TenantConfigListItem
+		if err := rows.Scan(&c.ID, &c.TenantID, &c.TenantName, &c.Version, &c.Data, &c.CreatedBy, &c.CreatedAt); err != nil {
+			return nil, apperror.Internal("failed to scan config", err)
+		}
+		configs = append(configs, c)
+	}
+
+	if configs == nil {
+		configs = []TenantConfigListItem{}
+	}
+
+	return configs, nil
+}
+
 func (s *ConfigService) GetConfigHistory(ctx context.Context, tenantID uuid.UUID, params pagination.Params) ([]domain.ConfigVersion, int, error) {
 	q := middleware.GetQuerier(ctx, s.db)
 

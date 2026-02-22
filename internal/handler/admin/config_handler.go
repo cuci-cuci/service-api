@@ -66,6 +66,15 @@ func (h *ConfigHandler) PushConfig(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusCreated, config)
 }
 
+func (h *ConfigHandler) ListAllConfigs(w http.ResponseWriter, r *http.Request) {
+	configs, err := h.svc.ListAllConfigs(r.Context())
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, configs)
+}
+
 func (h *ConfigHandler) BroadcastConfig(w http.ResponseWriter, r *http.Request) {
 	var req domain.PushConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

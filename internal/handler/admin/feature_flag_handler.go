@@ -79,6 +79,46 @@ func (h *FeatureFlagHandler) UpdateFlag(w http.ResponseWriter, r *http.Request) 
 	response.JSON(w, http.StatusOK, flag)
 }
 
+func (h *FeatureFlagHandler) GetFlagTenantOverrides(w http.ResponseWriter, r *http.Request) {
+	flagID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, apperror.NewAppError(http.StatusBadRequest, "invalid flag ID"))
+		return
+	}
+
+	overrides, svcErr := h.svc.GetFlagTenantOverrides(r.Context(), flagID)
+	if svcErr != nil {
+		response.Error(w, svcErr)
+		return
+	}
+	response.JSON(w, http.StatusOK, overrides)
+}
+
+type ToggleTenantFlagBody struct {
+	TenantID      uuid.UUID `json:"tenant_id" validate:"required"`
+	FeatureFlagID uuid.UUID `json:"feature_flag_id" validate:"required"`
+	Enabled       bool      `json:"enabled"`
+}
+
+func (h *FeatureFlagHandler) ToggleTenantFlag(w http.ResponseWriter, r *http.Request) {
+	var req ToggleTenantFlagBody
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, apperror.Validation("invalid request body"))
+		return
+	}
+
+	if req.TenantID == uuid.Nil || req.FeatureFlagID == uuid.Nil {
+		response.Error(w, apperror.Validation("tenant_id and feature_flag_id are required"))
+		return
+	}
+
+	if err := h.svc.SetTenantFlag(r.Context(), req.TenantID, req.FeatureFlagID, req.Enabled); err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (h *FeatureFlagHandler) GetTenantFlags(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
