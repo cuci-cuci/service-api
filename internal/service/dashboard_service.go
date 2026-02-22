@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"log/slog"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bangun-ekosistem/service-api/internal/middleware"
@@ -32,17 +34,17 @@ type MonthlyRevenue struct {
 }
 
 type AdminTransaction struct {
-	ID               string  `json:"id"`
-	TenantID         string  `json:"tenant_id"`
-	TenantName       string  `json:"tenant_name"`
-	OutletID         string  `json:"outlet_id"`
-	OutletName       string  `json:"outlet_name"`
-	LocalOrderNumber string  `json:"local_order_number"`
-	CustomerName     *string `json:"customer_name,omitempty"`
-	TotalAmount      int64   `json:"total_amount"`
-	PaymentStatus    string  `json:"payment_status"`
-	Status           string  `json:"status"`
-	CreatedAt        string  `json:"created_at"`
+	ID               uuid.UUID `json:"id"`
+	TenantID         uuid.UUID `json:"tenant_id"`
+	TenantName       string    `json:"tenant_name"`
+	OutletID         uuid.UUID `json:"outlet_id"`
+	OutletName       string    `json:"outlet_name"`
+	LocalOrderNumber string    `json:"local_order_number"`
+	CustomerName     *string   `json:"customer_name,omitempty"`
+	TotalAmount      int64     `json:"total_amount"`
+	PaymentStatus    string    `json:"payment_status"`
+	Status           string    `json:"status"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 func (s *DashboardService) GetStats(ctx context.Context) (*DashboardStats, error) {
@@ -122,9 +124,9 @@ func (s *DashboardService) ListTransactions(ctx context.Context, params paginati
 	}
 
 	rows, err := q.Query(ctx,
-		`SELECT t.id::text, t.tenant_id::text, tn.name, t.outlet_id::text, o.name,
+		`SELECT t.id, t.tenant_id, tn.name, t.outlet_id, o.name,
 		        t.local_order_number, t.customer_name, t.total_amount,
-		        t.payment_status, t.status, t.created_at::text
+		        t.payment_status, t.status, t.created_at
 		 FROM transactions t
 		 JOIN tenants tn ON t.tenant_id = tn.id
 		 JOIN outlets o ON t.outlet_id = o.id
