@@ -100,6 +100,20 @@ type OrderDetailResponse struct {
 	OrderNumber  string           `json:"order_number"`
 }
 
+type ShiftSummaryResponse struct {
+	Shift
+	CashierName      string                  `json:"cashier_name"`
+	TransactionCount int                     `json:"transaction_count"`
+	TotalRevenue     int64                   `json:"total_revenue"`
+	PaymentBreakdown []ShiftPaymentBreakdown `json:"payment_breakdown"`
+}
+
+type ShiftPaymentBreakdown struct {
+	PaymentType string `json:"payment_type"`
+	Count       int    `json:"count"`
+	Amount      int64  `json:"amount"`
+}
+
 func ToUserResponse(u User) UserResponse {
 	return UserResponse{
 		ID:        u.ID,

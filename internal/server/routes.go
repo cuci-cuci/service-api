@@ -57,6 +57,7 @@ func (s *Server) RegisterRoutes() {
 	templateService := service.NewServiceTemplateService(s.DB)
 	configService := service.NewConfigService(s.DB, templateService)
 	orderService := service.NewOrderService(s.DB)
+	shiftService := service.NewShiftService(s.DB)
 	syncService := service.NewSyncService(s.DB, configService, templateService, orderService)
 	featureFlagService := service.NewFeatureFlagService(s.DB)
 	auditService := service.NewAuditService(s.DB)
@@ -90,6 +91,7 @@ func (s *Server) RegisterRoutes() {
 	memberHandler := pos.NewMemberHandler(memberService)
 	posOutletHandler := pos.NewOutletHandler(outletService)
 	orderHandler := pos.NewOrderHandler(orderService, s.Validate)
+	shiftHandler := pos.NewShiftHandler(shiftService, s.Validate)
 
 	// Health check
 	s.Router.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -275,6 +277,12 @@ func (s *Server) RegisterRoutes() {
 				r.Get("/", orderHandler.GetByID)
 				r.Put("/status", orderHandler.UpdateStatus)
 			})
+
+			r.Post("/shifts/open", shiftHandler.Open)
+			r.Post("/shifts/close", shiftHandler.Close)
+			r.Get("/shifts/current", shiftHandler.GetCurrent)
+			r.Get("/shifts", shiftHandler.List)
+			r.Get("/shifts/{id}/summary", shiftHandler.GetSummary)
 		})
 	})
 }

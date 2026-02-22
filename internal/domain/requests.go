@@ -176,3 +176,13 @@ type UpdateOrderStatusRequest struct {
 	Status string `json:"status" validate:"required,oneof=received washing drying ironing done picked_up cancelled"`
 	Notes  string `json:"notes"`
 }
+
+type OpenShiftRequest struct {
+	OutletID    string `json:"outlet_id" validate:"required,uuid"`
+	OpeningCash int64  `json:"opening_cash" validate:"gte=0"`
+}
+
+type CloseShiftRequest struct {
+	ClosingCash int64  `json:"closing_cash" validate:"gte=0"`
+	Notes       string `json:"notes"`
+}
