@@ -209,3 +209,42 @@ func (s *MemberService) GetTransactionsByTenant(ctx context.Context, tenantID uu
 
 	return txns, total, nil
 }
+
+func (s *MemberService) UpdateSpending(ctx context.Context, memberID uuid.UUID, amount int64) (*domain.Member, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+	var m domain.Member
+	err := q.QueryRow(ctx, `
+		UPDATE members SET total_spending = total_spending + $1
+		WHERE id = $2
+		RETURNING id, tenant_id, name, phone, email, tier, discount_percent, total_points, total_spending, created_at
+	`, amount, memberID).Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier, &m.DiscountPercent, &m.TotalPoints, &m.TotalSpending, &m.CreatedAt)
+	if err != nil {
+		return nil, apperror.Internal("failed to update member spending")
+	}
+
+	// Auto-upgrade tier
+	newTier, newDiscount := calculateTier(m.TotalSpending)
+	if newTier != m.Tier {
+		_, err = q.Exec(ctx, `UPDATE members SET tier = $1, discount_percent = $2 WHERE id = $3`, newTier, newDiscount, memberID)
+		if err != nil {
+			return nil, apperror.Internal("failed to upgrade tier")
+		}
+		m.Tier = newTier
+		m.DiscountPercent = newDiscount
+	}
+
+	return &m, nil
+}
+
+func calculateTier(totalSpending int64) (string, int) {
+	switch {
+	case totalSpending >= 5_000_000: // 5M → Platinum 15%
+		return "platinum", 15
+	case totalSpending >= 2_000_000: // 2M → Gold 10%
+		return "gold", 10
+	case totalSpending >= 500_000: // 500K → Silver 5%
+		return "silver", 5
+	default:
+		return "bronze", 0
+	}
+}

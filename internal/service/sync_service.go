@@ -20,10 +20,11 @@ type SyncService struct {
 	configService *ConfigService
 	templateSvc   *ServiceTemplateService
 	orderSvc      *OrderService
+	memberSvc     *MemberService
 }
 
-func NewSyncService(db *pgxpool.Pool, configService *ConfigService, templateSvc *ServiceTemplateService, orderSvc *OrderService) *SyncService {
-	return &SyncService{db: db, configService: configService, templateSvc: templateSvc, orderSvc: orderSvc}
+func NewSyncService(db *pgxpool.Pool, configService *ConfigService, templateSvc *ServiceTemplateService, orderSvc *OrderService, memberSvc *MemberService) *SyncService {
+	return &SyncService{db: db, configService: configService, templateSvc: templateSvc, orderSvc: orderSvc, memberSvc: memberSvc}
 }
 
 func (s *SyncService) Upload(ctx context.Context, tenantID uuid.UUID, outletID uuid.UUID, transactions []domain.Transaction) (*domain.SyncUploadResult, error) {
@@ -35,12 +36,12 @@ func (s *SyncService) Upload(ctx context.Context, tenantID uuid.UUID, outletID u
 	now := time.Now()
 	for _, tx := range transactions {
 		batch.Queue(
-			`INSERT INTO transactions (id, tenant_id, outlet_id, local_order_number, customer_name,
+			`INSERT INTO transactions (id, tenant_id, outlet_id, local_order_number, customer_name, member_id,
 			 items, subtotal, discount_amount, tax_amount, total_amount, payment_status, payments,
 			 status, config_version_id, notes, created_by, created_at, synced_at)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 			 ON CONFLICT (id) DO NOTHING`,
-			tx.ID, tenantID, outletID, tx.LocalOrderNumber, tx.CustomerName,
+			tx.ID, tenantID, outletID, tx.LocalOrderNumber, tx.CustomerName, tx.MemberID,
 			tx.Items, tx.Subtotal, tx.DiscountAmount, tx.TaxAmount, tx.TotalAmount,
 			tx.PaymentStatus, tx.Payments, tx.Status, tx.ConfigVersionID, tx.Notes,
 			tx.CreatedBy, tx.CreatedAt, now)
@@ -66,6 +67,16 @@ func (s *SyncService) Upload(ctx context.Context, tenantID uuid.UUID, outletID u
 	for _, tx := range transactions {
 		if err := s.orderSvc.CreateFromTransaction(ctx, tenantID, tx, tx.CreatedBy); err != nil {
 			slog.Error("failed to create order from transaction", "transaction_id", tx.ID, "error", err)
+		}
+	}
+
+	// Update member spending for transactions with a member_id
+	for _, tx := range transactions {
+		if tx.MemberID != nil {
+			_, err := s.memberSvc.UpdateSpending(ctx, *tx.MemberID, tx.TotalAmount)
+			if err != nil {
+				slog.Error("failed to update member spending", "member_id", tx.MemberID, "error", err)
+			}
 		}
 	}
 
