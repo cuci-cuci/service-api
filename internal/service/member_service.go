@@ -29,7 +29,7 @@ func (s *MemberService) List(ctx context.Context, tenantID *uuid.UUID, params pa
 
 	var total int
 	countQuery := "SELECT COUNT(*) FROM members"
-	listQuery := `SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, created_at FROM members`
+	listQuery := `SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, total_spending, created_at FROM members`
 	var args []any
 
 	if tenantID != nil {
@@ -58,7 +58,7 @@ func (s *MemberService) List(ctx context.Context, tenantID *uuid.UUID, params pa
 	for rows.Next() {
 		var m domain.Member
 		if err := rows.Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier,
-			&m.DiscountPercent, &m.TotalPoints, &m.CreatedAt); err != nil {
+			&m.DiscountPercent, &m.TotalPoints, &m.TotalSpending, &m.CreatedAt); err != nil {
 			return nil, 0, apperror.Internal("failed to scan member", err)
 		}
 		members = append(members, m)
@@ -116,10 +116,10 @@ func (s *MemberService) Update(ctx context.Context, id uuid.UUID, req domain.Upd
 
 	var m domain.Member
 	err := q.QueryRow(ctx,
-		`SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, created_at
+		`SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, total_spending, created_at
 		 FROM members WHERE id = $1`, id).
 		Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier,
-			&m.DiscountPercent, &m.TotalPoints, &m.CreatedAt)
+			&m.DiscountPercent, &m.TotalPoints, &m.TotalSpending, &m.CreatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, apperror.NotFound("member not found")
@@ -158,10 +158,10 @@ func (s *MemberService) LookupByPhone(ctx context.Context, phone string) (*domai
 
 	var m domain.Member
 	err := q.QueryRow(ctx,
-		`SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, created_at
+		`SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, total_spending, created_at
 		 FROM members WHERE phone = $1`, phone).
 		Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier,
-			&m.DiscountPercent, &m.TotalPoints, &m.CreatedAt)
+			&m.DiscountPercent, &m.TotalPoints, &m.TotalSpending, &m.CreatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, apperror.NotFound("member not found")
@@ -181,7 +181,7 @@ func (s *MemberService) GetTransactionsByTenant(ctx context.Context, tenantID uu
 	}
 
 	rows, err := q.Query(ctx,
-		`SELECT id, tenant_id, outlet_id, local_order_number, customer_name, items, subtotal,
+		`SELECT id, tenant_id, outlet_id, local_order_number, customer_name, member_id, items, subtotal,
 		        discount_amount, tax_amount, total_amount, payment_status, payments, status,
 		        config_version_id, notes, created_by, created_at, synced_at
 		 FROM transactions WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
@@ -195,7 +195,7 @@ func (s *MemberService) GetTransactionsByTenant(ctx context.Context, tenantID uu
 	for rows.Next() {
 		var t domain.Transaction
 		if err := rows.Scan(&t.ID, &t.TenantID, &t.OutletID, &t.LocalOrderNumber, &t.CustomerName,
-			&t.Items, &t.Subtotal, &t.DiscountAmount, &t.TaxAmount, &t.TotalAmount,
+			&t.MemberID, &t.Items, &t.Subtotal, &t.DiscountAmount, &t.TaxAmount, &t.TotalAmount,
 			&t.PaymentStatus, &t.Payments, &t.Status, &t.ConfigVersionID, &t.Notes,
 			&t.CreatedBy, &t.CreatedAt, &t.SyncedAt); err != nil {
 			return nil, 0, apperror.Internal("failed to scan transaction", err)
@@ -208,4 +208,43 @@ func (s *MemberService) GetTransactionsByTenant(ctx context.Context, tenantID uu
 	}
 
 	return txns, total, nil
+}
+
+func (s *MemberService) UpdateSpending(ctx context.Context, memberID uuid.UUID, amount int64) (*domain.Member, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+	var m domain.Member
+	err := q.QueryRow(ctx, `
+		UPDATE members SET total_spending = total_spending + $1
+		WHERE id = $2
+		RETURNING id, tenant_id, name, phone, email, tier, discount_percent, total_points, total_spending, created_at
+	`, amount, memberID).Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier, &m.DiscountPercent, &m.TotalPoints, &m.TotalSpending, &m.CreatedAt)
+	if err != nil {
+		return nil, apperror.Internal("failed to update member spending", err)
+	}
+
+	// Auto-upgrade tier
+	newTier, newDiscount := calculateTier(m.TotalSpending)
+	if newTier != m.Tier {
+		_, err = q.Exec(ctx, `UPDATE members SET tier = $1, discount_percent = $2 WHERE id = $3`, newTier, newDiscount, memberID)
+		if err != nil {
+			return nil, apperror.Internal("failed to upgrade tier", err)
+		}
+		m.Tier = newTier
+		m.DiscountPercent = newDiscount
+	}
+
+	return &m, nil
+}
+
+func calculateTier(totalSpending int64) (string, int) {
+	switch {
+	case totalSpending >= 5_000_000: // 5M → Platinum 15%
+		return "platinum", 15
+	case totalSpending >= 2_000_000: // 2M → Gold 10%
+		return "gold", 10
+	case totalSpending >= 500_000: // 500K → Silver 5%
+		return "silver", 5
+	default:
+		return "bronze", 0
+	}
 }
