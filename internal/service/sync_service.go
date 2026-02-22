@@ -19,10 +19,11 @@ type SyncService struct {
 	db            *pgxpool.Pool
 	configService *ConfigService
 	templateSvc   *ServiceTemplateService
+	orderSvc      *OrderService
 }
 
-func NewSyncService(db *pgxpool.Pool, configService *ConfigService, templateSvc *ServiceTemplateService) *SyncService {
-	return &SyncService{db: db, configService: configService, templateSvc: templateSvc}
+func NewSyncService(db *pgxpool.Pool, configService *ConfigService, templateSvc *ServiceTemplateService, orderSvc *OrderService) *SyncService {
+	return &SyncService{db: db, configService: configService, templateSvc: templateSvc, orderSvc: orderSvc}
 }
 
 func (s *SyncService) Upload(ctx context.Context, tenantID uuid.UUID, outletID uuid.UUID, transactions []domain.Transaction) (*domain.SyncUploadResult, error) {
@@ -59,6 +60,13 @@ func (s *SyncService) Upload(ctx context.Context, tenantID uuid.UUID, outletID u
 	}
 	if err := br.Close(); err != nil {
 		slog.Error("failed to close batch", "error", err)
+	}
+
+	// Auto-create orders for newly inserted transactions
+	for _, tx := range transactions {
+		if err := s.orderSvc.CreateFromTransaction(ctx, tenantID, tx, tx.CreatedBy); err != nil {
+			slog.Error("failed to create order from transaction", "transaction_id", tx.ID, "error", err)
+		}
 	}
 
 	// Record sync session

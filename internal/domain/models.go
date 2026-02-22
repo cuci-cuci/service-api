@@ -158,3 +158,29 @@ type PaymentMethod struct {
 	SortOrder int       `json:"sort_order"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+type Order struct {
+	ID                    uuid.UUID  `json:"id"`
+	TransactionID         *uuid.UUID `json:"transaction_id,omitempty"`
+	TenantID              uuid.UUID  `json:"tenant_id"`
+	OutletID              uuid.UUID  `json:"outlet_id"`
+	Status                string     `json:"status"`
+	EstimatedCompletionAt *time.Time `json:"estimated_completion_at,omitempty"`
+	CompletedAt           *time.Time `json:"completed_at,omitempty"`
+	PickedUpAt            *time.Time `json:"picked_up_at,omitempty"`
+	Notes                 *string    `json:"notes,omitempty"`
+	CreatedBy             uuid.UUID  `json:"created_by"`
+	UpdatedBy             uuid.UUID  `json:"updated_by"`
+	CreatedAt             time.Time  `json:"created_at"`
+	UpdatedAt             time.Time  `json:"updated_at"`
+}
+
+type OrderStatusLog struct {
+	ID         uuid.UUID `json:"id"`
+	OrderID    uuid.UUID `json:"order_id"`
+	FromStatus *string   `json:"from_status,omitempty"`
+	ToStatus   string    `json:"to_status"`
+	ChangedBy  uuid.UUID `json:"changed_by"`
+	Notes      *string   `json:"notes,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}

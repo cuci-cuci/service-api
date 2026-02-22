@@ -164,3 +164,15 @@ type RegisterRequest struct {
 	Phone        string `json:"phone" validate:"omitempty"`
 	OwnerName    string `json:"owner_name" validate:"required,min=2"`
 }
+
+type CreateOrderRequest struct {
+	TransactionID          *string `json:"transaction_id"`
+	OutletID               string  `json:"outlet_id" validate:"required,uuid"`
+	EstimatedDurationHours int     `json:"estimated_duration_hours"`
+	Notes                  string  `json:"notes"`
+}
+
+type UpdateOrderStatusRequest struct {
+	Status string `json:"status" validate:"required,oneof=received washing drying ironing done picked_up cancelled"`
+	Notes  string `json:"notes"`
+}

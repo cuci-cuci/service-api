@@ -56,7 +56,8 @@ func (s *Server) RegisterRoutes() {
 	outletService := service.NewOutletService(s.DB)
 	templateService := service.NewServiceTemplateService(s.DB)
 	configService := service.NewConfigService(s.DB, templateService)
-	syncService := service.NewSyncService(s.DB, configService, templateService)
+	orderService := service.NewOrderService(s.DB)
+	syncService := service.NewSyncService(s.DB, configService, templateService, orderService)
 	featureFlagService := service.NewFeatureFlagService(s.DB)
 	auditService := service.NewAuditService(s.DB)
 	analyticsService := service.NewAnalyticsService(s.DB)
@@ -88,6 +89,7 @@ func (s *Server) RegisterRoutes() {
 	transactionHandler := pos.NewTransactionHandler(memberService)
 	memberHandler := pos.NewMemberHandler(memberService)
 	posOutletHandler := pos.NewOutletHandler(outletService)
+	orderHandler := pos.NewOrderHandler(orderService, s.Validate)
 
 	// Health check
 	s.Router.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -265,6 +267,14 @@ func (s *Server) RegisterRoutes() {
 			r.Get("/transactions", transactionHandler.List)
 			r.Get("/members/lookup", memberHandler.Lookup)
 			r.Get("/outlets", posOutletHandler.List)
+
+			r.Get("/orders", orderHandler.List)
+			r.Get("/orders/active", orderHandler.ListActive)
+			r.Post("/orders", orderHandler.Create)
+			r.Route("/orders/{id}", func(r chi.Router) {
+				r.Get("/", orderHandler.GetByID)
+				r.Put("/status", orderHandler.UpdateStatus)
+			})
 		})
 	})
 }
