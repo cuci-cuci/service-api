@@ -77,6 +77,7 @@ func (s *Server) RegisterRoutes() {
 	syncHandler := pos.NewSyncHandler(syncService, s.Validate)
 	transactionHandler := pos.NewTransactionHandler(memberService)
 	memberHandler := pos.NewMemberHandler(memberService)
+	posOutletHandler := pos.NewOutletHandler(outletService)
 
 	// Health check
 	s.Router.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -89,6 +90,7 @@ func (s *Server) RegisterRoutes() {
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/login", authHandler.Login)
 			r.Post("/refresh", authHandler.RefreshToken)
+			r.Post("/register", authHandler.Register)
 		})
 
 		// Admin routes (authenticated)
@@ -117,6 +119,9 @@ func (s *Server) RegisterRoutes() {
 					// Feature flags for tenant
 					r.Get("/feature-flags", featureFlagHandler.GetTenantFlags)
 					r.Put("/feature-flags", featureFlagHandler.SetTenantFlag)
+
+					// Analytics by outlet
+					r.Get("/analytics/outlets", analyticsHandler.RevenueByOutlet)
 
 					// Sync health
 					r.Get("/sync-health", func(w http.ResponseWriter, req *http.Request) {
@@ -212,6 +217,7 @@ func (s *Server) RegisterRoutes() {
 			r.Get("/sync/download", syncHandler.Download)
 			r.Get("/transactions", transactionHandler.List)
 			r.Get("/members/lookup", memberHandler.Lookup)
+			r.Get("/outlets", posOutletHandler.List)
 		})
 	})
 }
