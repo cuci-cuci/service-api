@@ -85,3 +85,17 @@ func (h *MembershipHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	response.JSON(w, http.StatusOK, member)
 }
+
+func (h *MembershipHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, apperror.NewAppError(http.StatusBadRequest, "invalid member ID"))
+		return
+	}
+
+	if err := h.svc.Delete(r.Context(), id); err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.NoContent(w)
+}

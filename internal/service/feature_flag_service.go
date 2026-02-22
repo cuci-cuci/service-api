@@ -108,6 +108,25 @@ func (s *FeatureFlagService) UpdateFlag(ctx context.Context, id uuid.UUID, req d
 	return &f, nil
 }
 
+func (s *FeatureFlagService) DeleteFlag(ctx context.Context, id uuid.UUID) error {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	// Delete tenant overrides first
+	_, err := q.Exec(ctx, `DELETE FROM tenant_feature_flags WHERE feature_flag_id = $1`, id)
+	if err != nil {
+		return apperror.Internal("failed to delete tenant feature flags", err)
+	}
+
+	result, err := q.Exec(ctx, `DELETE FROM feature_flags WHERE id = $1`, id)
+	if err != nil {
+		return apperror.Internal("failed to delete feature flag", err)
+	}
+	if result.RowsAffected() == 0 {
+		return apperror.NotFound("feature flag not found")
+	}
+	return nil
+}
+
 type TenantFeatureFlagResponse struct {
 	domain.FeatureFlag
 	Enabled bool `json:"enabled"`

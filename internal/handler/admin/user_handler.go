@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 
 	"github.com/bangun-ekosistem/service-api/internal/domain"
 	"github.com/bangun-ekosistem/service-api/internal/middleware"
@@ -62,4 +64,44 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 	h.audit.LogAction(r.Context(), actorID, actorName, "create", "user", user.ID.String(), nil, user, user.TenantID)
 
 	response.JSON(w, http.StatusCreated, user)
+}
+
+func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, apperror.NewAppError(http.StatusBadRequest, "invalid user ID"))
+		return
+	}
+
+	var req struct {
+		Name     string `json:"name"`
+		IsActive *bool  `json:"is_active"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, apperror.Validation("invalid request body"))
+		return
+	}
+
+	user, err := h.svc.UpdateUser(r.Context(), id, req.Name, req.IsActive, "")
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, user)
+}
+
+func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, apperror.NewAppError(http.StatusBadRequest, "invalid user ID"))
+		return
+	}
+
+	isActive := false
+	_, err = h.svc.UpdateUser(r.Context(), id, "", &isActive, "")
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.NoContent(w)
 }

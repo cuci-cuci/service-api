@@ -153,6 +153,19 @@ func (s *MemberService) Update(ctx context.Context, id uuid.UUID, req domain.Upd
 	return &m, nil
 }
 
+func (s *MemberService) Delete(ctx context.Context, id uuid.UUID) error {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	result, err := q.Exec(ctx, `DELETE FROM members WHERE id = $1`, id)
+	if err != nil {
+		return apperror.Internal("failed to delete member", err)
+	}
+	if result.RowsAffected() == 0 {
+		return apperror.NotFound("member not found")
+	}
+	return nil
+}
+
 func (s *MemberService) LookupByPhone(ctx context.Context, phone string) (*domain.Member, error) {
 	q := middleware.GetQuerier(ctx, s.db)
 

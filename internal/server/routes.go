@@ -165,6 +165,7 @@ func (s *Server) RegisterRoutes() {
 				r.Use(middleware.RequireRole("superadmin", "tenant_owner"))
 				r.Get("/", outletHandler.GetByID)
 				r.Put("/", outletHandler.Update)
+				r.Delete("/", outletHandler.Delete)
 			})
 
 			// Users (superadmin only)
@@ -172,6 +173,8 @@ func (s *Server) RegisterRoutes() {
 				r.Use(middleware.RequireSuperadmin())
 				r.Get("/", userHandler.List)
 				r.Post("/", userHandler.Create)
+				r.Put("/{id}", userHandler.Update)
+				r.Delete("/{id}", userHandler.Delete)
 			})
 
 			// Service categories
@@ -180,6 +183,7 @@ func (s *Server) RegisterRoutes() {
 				r.Get("/", templateHandler.ListCategories)
 				r.Post("/", templateHandler.CreateCategory)
 				r.Put("/{id}", templateHandler.UpdateCategory)
+				r.Delete("/{id}", templateHandler.DeleteCategory)
 			})
 
 			// Service templates
@@ -188,6 +192,7 @@ func (s *Server) RegisterRoutes() {
 				r.Get("/", templateHandler.ListTemplates)
 				r.Post("/", templateHandler.CreateTemplate)
 				r.Put("/{id}", templateHandler.UpdateTemplate)
+				r.Delete("/{id}", templateHandler.DeleteTemplate)
 			})
 
 			// Feature flags (global)
@@ -196,6 +201,7 @@ func (s *Server) RegisterRoutes() {
 				r.Get("/", featureFlagHandler.ListFlags)
 				r.Post("/", featureFlagHandler.CreateFlag)
 				r.Put("/{id}", featureFlagHandler.UpdateFlag)
+				r.Delete("/{id}", featureFlagHandler.DeleteFlag)
 				r.Get("/{id}/tenants", featureFlagHandler.GetFlagTenantOverrides)
 			})
 
@@ -208,6 +214,7 @@ func (s *Server) RegisterRoutes() {
 				r.Get("/", membershipHandler.List)
 				r.Post("/", membershipHandler.Create)
 				r.Put("/{id}", membershipHandler.Update)
+				r.Delete("/{id}", membershipHandler.Delete)
 			})
 
 			// Analytics
@@ -262,6 +269,7 @@ func (s *Server) RegisterRoutes() {
 				r.Get("/", membershipHandler.List)
 				r.Post("/", membershipHandler.Create)
 				r.Put("/{id}", membershipHandler.Update)
+				r.Delete("/{id}", membershipHandler.Delete)
 			})
 		})
 
@@ -300,6 +308,7 @@ func (s *Server) RegisterRoutes() {
 			// Analytics
 			r.Get("/analytics/summary", ownerAnalyticsHandler.Summary)
 			r.Get("/analytics/outlets", ownerAnalyticsHandler.RevenueByOutlet)
+			r.Get("/analytics/daily-revenue", ownerAnalyticsHandler.DailyRevenue)
 		})
 
 		// POS routes (authenticated, tenant-scoped)

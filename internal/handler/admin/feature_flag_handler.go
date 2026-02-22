@@ -79,6 +79,20 @@ func (h *FeatureFlagHandler) UpdateFlag(w http.ResponseWriter, r *http.Request) 
 	response.JSON(w, http.StatusOK, flag)
 }
 
+func (h *FeatureFlagHandler) DeleteFlag(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, apperror.NewAppError(http.StatusBadRequest, "invalid flag ID"))
+		return
+	}
+
+	if err := h.svc.DeleteFlag(r.Context(), id); err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.NoContent(w)
+}
+
 func (h *FeatureFlagHandler) GetFlagTenantOverrides(w http.ResponseWriter, r *http.Request) {
 	flagID, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
