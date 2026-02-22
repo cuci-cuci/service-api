@@ -120,6 +120,20 @@ func (s *ServiceTemplateService) UpdateCategory(ctx context.Context, id uuid.UUI
 	return &c, nil
 }
 
+func (s *ServiceTemplateService) DeleteCategory(ctx context.Context, id uuid.UUID) error {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	result, err := q.Exec(ctx,
+		`UPDATE service_categories SET is_active = false WHERE id = $1`, id)
+	if err != nil {
+		return apperror.Internal("failed to delete category", err)
+	}
+	if result.RowsAffected() == 0 {
+		return apperror.NotFound("category not found")
+	}
+	return nil
+}
+
 // --- Service Templates ---
 
 func (s *ServiceTemplateService) ListTemplates(ctx context.Context, params pagination.Params) ([]domain.ServiceTemplate, int, error) {
@@ -231,6 +245,20 @@ func (s *ServiceTemplateService) UpdateTemplate(ctx context.Context, id uuid.UUI
 	}
 
 	return &t, nil
+}
+
+func (s *ServiceTemplateService) DeleteTemplate(ctx context.Context, id uuid.UUID) error {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	result, err := q.Exec(ctx,
+		`UPDATE service_templates SET is_active = false WHERE id = $1`, id)
+	if err != nil {
+		return apperror.Internal("failed to delete template", err)
+	}
+	if result.RowsAffected() == 0 {
+		return apperror.NotFound("template not found")
+	}
+	return nil
 }
 
 // --- Tenant Service Prices ---

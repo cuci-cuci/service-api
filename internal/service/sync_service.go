@@ -63,6 +63,29 @@ func (s *SyncService) Upload(ctx context.Context, tenantID uuid.UUID, outletID u
 		slog.Error("failed to close batch", "error", err)
 	}
 
+	// Link transactions to open shifts
+	for _, tx := range transactions {
+		var shiftID uuid.UUID
+		if tx.ShiftID != nil {
+			// Use the shift_id provided by the POS client
+			shiftID = *tx.ShiftID
+		} else {
+			// Fallback: find open shift for this cashier/outlet
+			err := q.QueryRow(ctx,
+				`SELECT id FROM shifts WHERE cashier_id = $1 AND outlet_id = $2 AND status = 'open' LIMIT 1`,
+				tx.CreatedBy, outletID).Scan(&shiftID)
+			if err != nil {
+				continue
+			}
+		}
+		_, err := q.Exec(ctx,
+			`INSERT INTO shift_transactions (shift_id, transaction_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+			shiftID, tx.ID)
+		if err != nil {
+			slog.Error("failed to link transaction to shift", "transaction_id", tx.ID, "shift_id", shiftID, "error", err)
+		}
+	}
+
 	// Auto-create orders for newly inserted transactions
 	for _, tx := range transactions {
 		if err := s.orderSvc.CreateFromTransaction(ctx, tenantID, tx, tx.CreatedBy); err != nil {

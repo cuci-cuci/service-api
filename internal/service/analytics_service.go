@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -11,6 +12,12 @@ import (
 	"github.com/bangun-ekosistem/service-api/internal/middleware"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 )
+
+type DailyRevenuePoint struct {
+	Date         string `json:"date"`
+	Revenue      int64  `json:"revenue"`
+	Transactions int    `json:"transactions"`
+}
 
 type AnalyticsService struct {
 	db *pgxpool.Pool
@@ -150,4 +157,39 @@ func (s *AnalyticsService) TransactionStats(ctx context.Context, startDate, endD
 	}
 
 	return &stats, nil
+}
+
+func (s *AnalyticsService) DailyRevenue(ctx context.Context, tenantID uuid.UUID, days int) ([]DailyRevenuePoint, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	query := `
+		SELECT to_char(date_trunc('day', t.created_at), 'YYYY-MM-DD') as date,
+		       COALESCE(SUM(t.total_amount), 0) as revenue,
+		       COUNT(*) as transactions
+		FROM transactions t
+		WHERE t.tenant_id = $1 AND t.created_at >= NOW() - ($2 || ' days')::INTERVAL
+		GROUP BY date_trunc('day', t.created_at)
+		ORDER BY date
+	`
+
+	rows, err := q.Query(ctx, query, tenantID, fmt.Sprintf("%d", days))
+	if err != nil {
+		return nil, apperror.Internal("failed to query daily revenue", err)
+	}
+	defer rows.Close()
+
+	var results []DailyRevenuePoint
+	for rows.Next() {
+		var p DailyRevenuePoint
+		if err := rows.Scan(&p.Date, &p.Revenue, &p.Transactions); err != nil {
+			return nil, apperror.Internal("failed to scan daily revenue", err)
+		}
+		results = append(results, p)
+	}
+
+	if results == nil {
+		results = []DailyRevenuePoint{}
+	}
+
+	return results, nil
 }

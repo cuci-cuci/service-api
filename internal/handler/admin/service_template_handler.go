@@ -83,6 +83,20 @@ func (h *ServiceTemplateHandler) UpdateCategory(w http.ResponseWriter, r *http.R
 	response.JSON(w, http.StatusOK, cat)
 }
 
+func (h *ServiceTemplateHandler) DeleteCategory(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, apperror.NewAppError(http.StatusBadRequest, "invalid category ID"))
+		return
+	}
+
+	if err := h.svc.DeleteCategory(r.Context(), id); err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.NoContent(w)
+}
+
 // --- Templates ---
 
 func (h *ServiceTemplateHandler) ListTemplates(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +154,20 @@ func (h *ServiceTemplateHandler) UpdateTemplate(w http.ResponseWriter, r *http.R
 		return
 	}
 	response.JSON(w, http.StatusOK, tmpl)
+}
+
+func (h *ServiceTemplateHandler) DeleteTemplate(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, apperror.NewAppError(http.StatusBadRequest, "invalid template ID"))
+		return
+	}
+
+	if err := h.svc.DeleteTemplate(r.Context(), id); err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.NoContent(w)
 }
 
 // --- Tenant Service Prices ---

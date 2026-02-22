@@ -109,6 +109,7 @@ type Transaction struct {
 	ConfigVersionID  uuid.UUID       `json:"config_version_id"`
 	Notes            *string         `json:"notes,omitempty"`
 	CreatedBy        uuid.UUID       `json:"created_by"`
+	ShiftID          *uuid.UUID      `json:"shift_id,omitempty"`
 	CreatedAt        time.Time       `json:"created_at"`
 	SyncedAt         *time.Time      `json:"synced_at,omitempty"`
 }

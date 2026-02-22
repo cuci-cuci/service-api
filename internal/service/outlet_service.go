@@ -132,3 +132,18 @@ func (s *OutletService) Update(ctx context.Context, id uuid.UUID, req domain.Upd
 
 	return o, nil
 }
+
+func (s *OutletService) Delete(ctx context.Context, id uuid.UUID) error {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	result, err := q.Exec(ctx,
+		`UPDATE outlets SET is_active = false, updated_at = $1 WHERE id = $2`,
+		time.Now(), id)
+	if err != nil {
+		return apperror.Internal("failed to delete outlet", err)
+	}
+	if result.RowsAffected() == 0 {
+		return apperror.NotFound("outlet not found")
+	}
+	return nil
+}
