@@ -104,6 +104,63 @@ func (s *UserService) Create(ctx context.Context, req domain.CreateUserRequest) 
 	return &resp, nil
 }
 
+func (s *UserService) ListByTenantAndRole(ctx context.Context, tenantID uuid.UUID, role string, params pagination.Params) ([]domain.UserResponse, int, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	var total int
+	err := q.QueryRow(ctx, "SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role = $2", tenantID, role).Scan(&total)
+	if err != nil {
+		return nil, 0, apperror.Internal("failed to count users", err)
+	}
+
+	rows, err := q.Query(ctx,
+		`SELECT id, email, name, role, tenant_id, is_active, created_at, updated_at
+		 FROM users WHERE tenant_id = $1 AND role = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`,
+		tenantID, role, params.PerPage, params.Offset())
+	if err != nil {
+		return nil, 0, apperror.Internal("failed to list users", err)
+	}
+	defer rows.Close()
+
+	var users []domain.UserResponse
+	for rows.Next() {
+		var u domain.UserResponse
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.TenantID, &u.IsActive, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, 0, apperror.Internal("failed to scan user", err)
+		}
+		users = append(users, u)
+	}
+
+	if users == nil {
+		users = []domain.UserResponse{}
+	}
+
+	return users, total, nil
+}
+
+func (s *UserService) UpdateUser(ctx context.Context, id uuid.UUID, name string, isActive *bool, outletID string) (*domain.UserResponse, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	u, err := s.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if name != "" {
+		u.Name = name
+	}
+	if isActive != nil {
+		u.IsActive = *isActive
+	}
+
+	_, err = q.Exec(ctx, `UPDATE users SET name = $1, is_active = $2, updated_at = NOW() WHERE id = $3`, u.Name, u.IsActive, u.ID)
+	if err != nil {
+		return nil, apperror.Internal("failed to update user", err)
+	}
+
+	return u, nil
+}
+
 func (s *UserService) GetByID(ctx context.Context, id uuid.UUID) (*domain.UserResponse, error) {
 	q := middleware.GetQuerier(ctx, s.db)
 

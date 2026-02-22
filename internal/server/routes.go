@@ -11,6 +11,7 @@ import (
 
 	"github.com/bangun-ekosistem/service-api/internal/handler"
 	"github.com/bangun-ekosistem/service-api/internal/handler/admin"
+	"github.com/bangun-ekosistem/service-api/internal/handler/owner"
 	"github.com/bangun-ekosistem/service-api/internal/handler/pos"
 	"github.com/bangun-ekosistem/service-api/internal/middleware"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
@@ -73,6 +74,15 @@ func (s *Server) RegisterRoutes() {
 	analyticsHandler := admin.NewAnalyticsHandler(analyticsService)
 	auditLogHandler := admin.NewAuditLogHandler(auditService)
 	membershipHandler := admin.NewMembershipHandler(memberService, s.Validate)
+
+	paymentMethodService := service.NewPaymentMethodService(s.DB)
+
+	ownerOutletHandler := owner.NewOutletHandler(outletService, s.Validate)
+	ownerServicePriceHandler := owner.NewServicePriceHandler(templateService, s.Validate)
+	ownerPaymentMethodHandler := owner.NewPaymentMethodHandler(paymentMethodService, s.Validate)
+	ownerCashierHandler := owner.NewCashierHandler(userService, s.Validate)
+	ownerMemberHandler := owner.NewMemberHandler(memberService, s.Validate)
+	ownerAnalyticsHandler := owner.NewAnalyticsHandler(analyticsService)
 
 	syncHandler := pos.NewSyncHandler(syncService, s.Validate)
 	transactionHandler := pos.NewTransactionHandler(memberService)
@@ -205,6 +215,43 @@ func (s *Server) RegisterRoutes() {
 				r.Use(middleware.RequireSuperadmin())
 				r.Post("/broadcast", configHandler.BroadcastConfig)
 			})
+		})
+
+		// Owner routes (authenticated, tenant-scoped, tenant_owner only)
+		r.Route("/owner", func(r chi.Router) {
+			r.Use(middleware.JWTAuth(s.Config.JWTSecret))
+			r.Use(middleware.TenantIsolation(s.DB))
+			r.Use(middleware.RequireRole("tenant_owner"))
+
+			// Outlets
+			r.Get("/outlets", ownerOutletHandler.List)
+			r.Post("/outlets", ownerOutletHandler.Create)
+			r.Put("/outlets/{id}", ownerOutletHandler.Update)
+
+			// Services & Pricing
+			r.Get("/services", ownerServicePriceHandler.ListServicesWithPrices)
+			r.Put("/service-prices/{templateId}", ownerServicePriceHandler.SetPrice)
+			r.Put("/service-prices/bulk", ownerServicePriceHandler.BulkSetPrices)
+
+			// Payment Methods
+			r.Get("/payment-methods", ownerPaymentMethodHandler.List)
+			r.Post("/payment-methods", ownerPaymentMethodHandler.Create)
+			r.Put("/payment-methods/{id}", ownerPaymentMethodHandler.Update)
+			r.Delete("/payment-methods/{id}", ownerPaymentMethodHandler.Delete)
+
+			// Cashiers
+			r.Get("/cashiers", ownerCashierHandler.List)
+			r.Post("/cashiers", ownerCashierHandler.Create)
+			r.Put("/cashiers/{id}", ownerCashierHandler.Update)
+
+			// Members
+			r.Get("/members", ownerMemberHandler.List)
+			r.Post("/members", ownerMemberHandler.Create)
+			r.Put("/members/{id}", ownerMemberHandler.Update)
+
+			// Analytics
+			r.Get("/analytics/summary", ownerAnalyticsHandler.Summary)
+			r.Get("/analytics/outlets", ownerAnalyticsHandler.RevenueByOutlet)
 		})
 
 		// POS routes (authenticated, tenant-scoped)

@@ -126,6 +126,36 @@ type MemberLookupRequest struct {
 	Phone string `json:"phone" validate:"required"`
 }
 
+type CreatePaymentMethodRequest struct {
+	Name      string `json:"name" validate:"required"`
+	Type      string `json:"type" validate:"required,oneof=cash qris bank_transfer ewallet other"`
+	SortOrder int    `json:"sort_order"`
+}
+
+type UpdatePaymentMethodRequest struct {
+	Name      string `json:"name"`
+	Type      string `json:"type" validate:"omitempty,oneof=cash qris bank_transfer ewallet other"`
+	SortOrder *int   `json:"sort_order"`
+	IsActive  *bool  `json:"is_active"`
+}
+
+type CreateCashierRequest struct {
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required,min=8"`
+	Name     string `json:"name" validate:"required"`
+	OutletID string `json:"outlet_id" validate:"omitempty,uuid"`
+}
+
+type UpdateCashierRequest struct {
+	Name     string `json:"name"`
+	IsActive *bool  `json:"is_active"`
+	OutletID string `json:"outlet_id" validate:"omitempty,uuid"`
+}
+
+type BulkSetTenantServicePriceRequest struct {
+	Prices []SetTenantServicePriceRequest `json:"prices" validate:"required,dive"`
+}
+
 type RegisterRequest struct {
 	BusinessName string `json:"business_name" validate:"required,min=2,max=100"`
 	Slug         string `json:"slug" validate:"required,alphanum,min=2,max=50"`
