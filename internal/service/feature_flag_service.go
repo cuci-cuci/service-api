@@ -143,6 +143,44 @@ func (s *FeatureFlagService) GetTenantFlags(ctx context.Context, tenantID uuid.U
 	return flags, nil
 }
 
+type TenantFlagOverride struct {
+	ID            uuid.UUID `json:"id"`
+	TenantID      uuid.UUID `json:"tenant_id"`
+	TenantName    string    `json:"tenant_name"`
+	FeatureFlagID uuid.UUID `json:"feature_flag_id"`
+	Enabled       bool      `json:"enabled"`
+}
+
+func (s *FeatureFlagService) GetFlagTenantOverrides(ctx context.Context, flagID uuid.UUID) ([]TenantFlagOverride, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	rows, err := q.Query(ctx,
+		`SELECT tff.id, tff.tenant_id, t.name, tff.feature_flag_id, tff.enabled
+		 FROM tenant_feature_flags tff
+		 JOIN tenants t ON tff.tenant_id = t.id
+		 WHERE tff.feature_flag_id = $1`, flagID)
+	if err != nil {
+		slog.Error("failed to get flag tenant overrides", "error", err)
+		return nil, apperror.Internal("failed to get flag tenant overrides", err)
+	}
+	defer rows.Close()
+
+	var overrides []TenantFlagOverride
+	for rows.Next() {
+		var o TenantFlagOverride
+		if err := rows.Scan(&o.ID, &o.TenantID, &o.TenantName, &o.FeatureFlagID, &o.Enabled); err != nil {
+			return nil, apperror.Internal("failed to scan flag override", err)
+		}
+		overrides = append(overrides, o)
+	}
+
+	if overrides == nil {
+		overrides = []TenantFlagOverride{}
+	}
+
+	return overrides, nil
+}
+
 func (s *FeatureFlagService) SetTenantFlag(ctx context.Context, tenantID uuid.UUID, flagID uuid.UUID, enabled bool) error {
 	q := middleware.GetQuerier(ctx, s.db)
 
