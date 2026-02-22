@@ -135,7 +135,7 @@ func (s *SyncService) Download(ctx context.Context, tenantID uuid.UUID, currentV
 
 	// Get members
 	rows, err := q.Query(ctx,
-		`SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, created_at
+		`SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, total_spending, created_at
 		 FROM members WHERE tenant_id = $1 OR tenant_id IS NULL`, tenantID)
 	if err != nil {
 		return nil, apperror.Internal("failed to get members", err)
@@ -146,7 +146,7 @@ func (s *SyncService) Download(ctx context.Context, tenantID uuid.UUID, currentV
 	for rows.Next() {
 		var m domain.Member
 		if err := rows.Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier,
-			&m.DiscountPercent, &m.TotalPoints, &m.CreatedAt); err != nil {
+			&m.DiscountPercent, &m.TotalPoints, &m.TotalSpending, &m.CreatedAt); err != nil {
 			return nil, apperror.Internal("failed to scan member", err)
 		}
 		members = append(members, m)
