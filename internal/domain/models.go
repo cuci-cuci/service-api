@@ -97,6 +97,7 @@ type Transaction struct {
 	OutletID         uuid.UUID       `json:"outlet_id"`
 	LocalOrderNumber string          `json:"local_order_number"`
 	CustomerName     *string         `json:"customer_name,omitempty"`
+	MemberID         *uuid.UUID      `json:"member_id,omitempty"`
 	Items            json.RawMessage `json:"items"`
 	Subtotal         int64           `json:"subtotal"`
 	DiscountAmount   int64           `json:"discount_amount"`
@@ -121,6 +122,7 @@ type Member struct {
 	Tier            string     `json:"tier"`
 	DiscountPercent int        `json:"discount_percent"`
 	TotalPoints     int        `json:"total_points"`
+	TotalSpending   int64      `json:"total_spending"`
 	CreatedAt       time.Time  `json:"created_at"`
 }
 
