@@ -184,3 +184,19 @@ type OrderStatusLog struct {
 	Notes      *string   `json:"notes,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }
+
+type Shift struct {
+	ID             uuid.UUID  `json:"id"`
+	TenantID       uuid.UUID  `json:"tenant_id"`
+	OutletID       uuid.UUID  `json:"outlet_id"`
+	CashierID      uuid.UUID  `json:"cashier_id"`
+	OpeningCash    int64      `json:"opening_cash"`
+	ClosingCash    *int64     `json:"closing_cash,omitempty"`
+	ExpectedCash   *int64     `json:"expected_cash,omitempty"`
+	CashDifference *int64     `json:"cash_difference,omitempty"`
+	Status         string     `json:"status"`
+	OpenedAt       time.Time  `json:"opened_at"`
+	ClosedAt       *time.Time `json:"closed_at,omitempty"`
+	Notes          *string    `json:"notes,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+}
