@@ -219,7 +219,7 @@ func (s *MemberService) UpdateSpending(ctx context.Context, memberID uuid.UUID, 
 		RETURNING id, tenant_id, name, phone, email, tier, discount_percent, total_points, total_spending, created_at
 	`, amount, memberID).Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier, &m.DiscountPercent, &m.TotalPoints, &m.TotalSpending, &m.CreatedAt)
 	if err != nil {
-		return nil, apperror.Internal("failed to update member spending")
+		return nil, apperror.Internal("failed to update member spending", err)
 	}
 
 	// Auto-upgrade tier
@@ -227,7 +227,7 @@ func (s *MemberService) UpdateSpending(ctx context.Context, memberID uuid.UUID, 
 	if newTier != m.Tier {
 		_, err = q.Exec(ctx, `UPDATE members SET tier = $1, discount_percent = $2 WHERE id = $3`, newTier, newDiscount, memberID)
 		if err != nil {
-			return nil, apperror.Internal("failed to upgrade tier")
+			return nil, apperror.Internal("failed to upgrade tier", err)
 		}
 		m.Tier = newTier
 		m.DiscountPercent = newDiscount
