@@ -122,9 +122,9 @@ func (s *DashboardService) ListTransactions(ctx context.Context, params paginati
 	}
 
 	rows, err := q.Query(ctx,
-		`SELECT t.id, t.tenant_id, tn.name, t.outlet_id, o.name,
+		`SELECT t.id::text, t.tenant_id::text, tn.name, t.outlet_id::text, o.name,
 		        t.local_order_number, t.customer_name, t.total_amount,
-		        t.payment_status, t.status, t.created_at
+		        t.payment_status, t.status, t.created_at::text
 		 FROM transactions t
 		 JOIN tenants tn ON t.tenant_id = tn.id
 		 JOIN outlets o ON t.outlet_id = o.id
