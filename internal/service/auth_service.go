@@ -93,23 +93,30 @@ func (s *AuthService) Register(ctx context.Context, req domain.RegisterRequest) 
 		return nil, apperror.Internal("failed to create default outlet", err)
 	}
 
-	// Create default payment methods
-	paymentMethods := []struct {
-		Name string
-		Type string
-	}{
-		{"Tunai", "cash"},
-		{"QRIS", "qris"},
-		{"Transfer Bank", "bank_transfer"},
+	// Create default payment methods (skip if tenant already has some from seed)
+	var pmCount int
+	err = tx.QueryRow(ctx, `SELECT COUNT(*) FROM payment_methods WHERE tenant_id = $1`, tenantID).Scan(&pmCount)
+	if err != nil {
+		return nil, apperror.Internal("failed to check payment methods", err)
 	}
-	for i, pm := range paymentMethods {
-		_, err = tx.Exec(ctx,
-			`INSERT INTO payment_methods (id, tenant_id, name, type, is_active, sort_order, created_at)
-			 VALUES ($1, $2, $3, $4, true, $5, $6)`,
-			uuid.New(), tenantID, pm.Name, pm.Type, i+1, now)
-		if err != nil {
-			slog.Error("failed to insert payment method", "error", err, "name", pm.Name)
-			return nil, apperror.Internal("failed to create default payment methods", err)
+	if pmCount == 0 {
+		paymentMethods := []struct {
+			Name string
+			Type string
+		}{
+			{"Tunai", "cash"},
+			{"QRIS", "qris"},
+			{"Transfer Bank", "bank_transfer"},
+		}
+		for i, pm := range paymentMethods {
+			_, err = tx.Exec(ctx,
+				`INSERT INTO payment_methods (id, tenant_id, name, type, is_active, sort_order, created_at)
+				 VALUES ($1, $2, $3, $4, true, $5, $6)`,
+				uuid.New(), tenantID, pm.Name, pm.Type, i+1, now)
+			if err != nil {
+				slog.Error("failed to insert payment method", "error", err, "name", pm.Name)
+				return nil, apperror.Internal("failed to create default payment methods", err)
+			}
 		}
 	}
 
