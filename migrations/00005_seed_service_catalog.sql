@@ -1,9 +1,4 @@
 -- +goose Up
--- +goose StatementBegin
-
--- =============================================
--- Seed: Default Laundry Service Catalog
--- =============================================
 
 -- Service Categories
 INSERT INTO service_categories (id, name, icon, sort_order, is_active) VALUES
@@ -53,8 +48,8 @@ ON CONFLICT (id) DO NOTHING;
 
 -- Service Templates: Cuci Karpet & Gorden
 INSERT INTO service_templates (id, category_id, name, pricing_unit, base_price, estimated_duration_hours, sort_order) VALUES
-    ('t0000001-0000-0000-0000-000000000016', 'c0000001-0000-0000-0000-000000000006', 'Karpet Kecil (< 2m²)', 'pcs', 30000, 72, 1),
-    ('t0000001-0000-0000-0000-000000000017', 'c0000001-0000-0000-0000-000000000006', 'Karpet Besar (≥ 2m²)', 'sqm', 25000, 96, 2),
+    ('t0000001-0000-0000-0000-000000000016', 'c0000001-0000-0000-0000-000000000006', 'Karpet Kecil', 'pcs', 30000, 72, 1),
+    ('t0000001-0000-0000-0000-000000000017', 'c0000001-0000-0000-0000-000000000006', 'Karpet Besar', 'sqm', 25000, 96, 2),
     ('t0000001-0000-0000-0000-000000000018', 'c0000001-0000-0000-0000-000000000006', 'Gorden', 'meter', 10000, 72, 3)
 ON CONFLICT (id) DO NOTHING;
 
@@ -66,18 +61,20 @@ INSERT INTO service_templates (id, category_id, name, pricing_unit, base_price, 
     ('t0000001-0000-0000-0000-000000000022', 'c0000001-0000-0000-0000-000000000007', 'Bantal / Guling', 'pcs', 15000, 48, 4)
 ON CONFLICT (id) DO NOTHING;
 
--- =============================================
--- Seed: Default payment methods for existing tenant
--- =============================================
--- Note: Payment methods are tenant-scoped, so we seed for the existing "Laundry Express" tenant
--- New tenants should get default payment methods created during registration
+-- Seed default payment methods for existing tenants
+INSERT INTO payment_methods (tenant_id, name, type, sort_order) SELECT id, 'Tunai', 'cash', 1 FROM tenants WHERE NOT EXISTS (SELECT 1 FROM payment_methods WHERE payment_methods.tenant_id = tenants.id AND type = 'cash');
+INSERT INTO payment_methods (tenant_id, name, type, sort_order) SELECT id, 'QRIS', 'qris', 2 FROM tenants WHERE NOT EXISTS (SELECT 1 FROM payment_methods WHERE payment_methods.tenant_id = tenants.id AND type = 'qris');
+INSERT INTO payment_methods (tenant_id, name, type, sort_order) SELECT id, 'Transfer Bank', 'bank_transfer', 3 FROM tenants WHERE NOT EXISTS (SELECT 1 FROM payment_methods WHERE payment_methods.tenant_id = tenants.id AND type = 'bank_transfer');
 
--- +goose StatementEnd
+-- Seed tenant_service_prices for existing tenants (use base_price from templates)
+INSERT INTO tenant_service_prices (tenant_id, service_template_id, price, is_active)
+SELECT t.id, st.id, st.base_price, true
+FROM tenants t CROSS JOIN service_templates st
+WHERE st.is_active = true
+ON CONFLICT (tenant_id, service_template_id) DO NOTHING;
 
 -- +goose Down
--- +goose StatementBegin
-
-DELETE FROM service_templates WHERE id LIKE 't0000001-0000-0000-0000-%';
-DELETE FROM service_categories WHERE id LIKE 'c0000001-0000-0000-0000-%';
-
--- +goose StatementEnd
+DELETE FROM tenant_service_prices WHERE service_template_id IN (SELECT id FROM service_templates WHERE id::text LIKE 't0000001%');
+DELETE FROM payment_methods WHERE name IN ('Tunai', 'QRIS', 'Transfer Bank');
+DELETE FROM service_templates WHERE id::text LIKE 't0000001%';
+DELETE FROM service_categories WHERE id::text LIKE 'c0000001%';
