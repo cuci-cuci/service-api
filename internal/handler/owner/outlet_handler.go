@@ -16,12 +16,13 @@ import (
 )
 
 type OutletHandler struct {
-	svc      *service.OutletService
-	validate *validator.Validate
+	svc        *service.OutletService
+	billingSvc *service.BillingService
+	validate   *validator.Validate
 }
 
-func NewOutletHandler(svc *service.OutletService, validate *validator.Validate) *OutletHandler {
-	return &OutletHandler{svc: svc, validate: validate}
+func NewOutletHandler(svc *service.OutletService, billingSvc *service.BillingService, validate *validator.Validate) *OutletHandler {
+	return &OutletHandler{svc: svc, billingSvc: billingSvc, validate: validate}
 }
 
 func (h *OutletHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +46,14 @@ func (h *OutletHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		response.Error(w, err)
 		return
+	}
+
+	// Check outlet limit before creating
+	if h.billingSvc != nil {
+		if limitErr := h.billingSvc.CheckOutletLimit(r.Context(), tenantID); limitErr != nil {
+			response.Error(w, limitErr)
+			return
+		}
 	}
 
 	var req domain.CreateOutletRequest

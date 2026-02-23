@@ -172,6 +172,8 @@ type Order struct {
 	CompletedAt           *time.Time `json:"completed_at,omitempty"`
 	PickedUpAt            *time.Time `json:"picked_up_at,omitempty"`
 	Notes                 *string    `json:"notes,omitempty"`
+	CustomerPhone         *string    `json:"customer_phone,omitempty"`
+	TrackingToken         *string    `json:"tracking_token,omitempty"`
 	CreatedBy             uuid.UUID  `json:"created_by"`
 	UpdatedBy             uuid.UUID  `json:"updated_by"`
 	CreatedAt             time.Time  `json:"created_at"`

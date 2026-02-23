@@ -18,11 +18,12 @@ import (
 
 type OrderHandler struct {
 	svc      *service.OrderService
+	notifSvc *service.NotificationService
 	validate *validator.Validate
 }
 
-func NewOrderHandler(svc *service.OrderService, validate *validator.Validate) *OrderHandler {
-	return &OrderHandler{svc: svc, validate: validate}
+func NewOrderHandler(svc *service.OrderService, notifSvc *service.NotificationService, validate *validator.Validate) *OrderHandler {
+	return &OrderHandler{svc: svc, notifSvc: notifSvc, validate: validate}
 }
 
 func (h *OrderHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -84,6 +85,16 @@ func (h *OrderHandler) Create(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, svcErr)
 		return
 	}
+
+	// Send WhatsApp notification for new order
+	if h.notifSvc != nil && order.CustomerPhone != nil {
+		trackingToken := ""
+		if order.TrackingToken != nil {
+			trackingToken = *order.TrackingToken
+		}
+		h.notifSvc.NotifyOrderStatus(r.Context(), *tenantID, order.ID, *order.CustomerPhone, "received", "", order.ID.String()[:8], trackingToken)
+	}
+
 	response.JSON(w, http.StatusCreated, order)
 }
 
@@ -112,6 +123,16 @@ func (h *OrderHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, svcErr)
 		return
 	}
+
+	// Send WhatsApp notification on status change
+	if h.notifSvc != nil && order.CustomerPhone != nil {
+		trackingToken := ""
+		if order.TrackingToken != nil {
+			trackingToken = *order.TrackingToken
+		}
+		h.notifSvc.NotifyOrderStatus(r.Context(), order.TenantID, order.ID, *order.CustomerPhone, order.Status, "", order.ID.String()[:8], trackingToken)
+	}
+
 	response.JSON(w, http.StatusOK, order)
 }
 

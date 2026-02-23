@@ -127,6 +127,25 @@ type ShiftPaymentBreakdown struct {
 	Amount      int64  `json:"amount"`
 }
 
+type OrderTrackingResponse struct {
+	ID                    uuid.UUID             `json:"id"`
+	Status                string                `json:"status"`
+	EstimatedCompletionAt *time.Time            `json:"estimated_completion_at,omitempty"`
+	CompletedAt           *time.Time            `json:"completed_at,omitempty"`
+	PickedUpAt            *time.Time            `json:"picked_up_at,omitempty"`
+	TrackingToken         string                `json:"tracking_token"`
+	CreatedAt             time.Time             `json:"created_at"`
+	CustomerName          *string               `json:"customer_name,omitempty"`
+	OrderNumber           string                `json:"order_number"`
+	BusinessName          string                `json:"business_name"`
+	StatusHistory         []TrackingStatusEntry  `json:"status_history"`
+}
+
+type TrackingStatusEntry struct {
+	Status    string    `json:"status"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
 func ToUserResponse(u User) UserResponse {
 	return UserResponse{
 		ID:        u.ID,

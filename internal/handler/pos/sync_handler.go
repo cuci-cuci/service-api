@@ -16,12 +16,13 @@ import (
 )
 
 type SyncHandler struct {
-	svc      *service.SyncService
-	validate *validator.Validate
+	svc        *service.SyncService
+	billingSvc *service.BillingService
+	validate   *validator.Validate
 }
 
-func NewSyncHandler(svc *service.SyncService, validate *validator.Validate) *SyncHandler {
-	return &SyncHandler{svc: svc, validate: validate}
+func NewSyncHandler(svc *service.SyncService, billingSvc *service.BillingService, validate *validator.Validate) *SyncHandler {
+	return &SyncHandler{svc: svc, billingSvc: billingSvc, validate: validate}
 }
 
 func (h *SyncHandler) Upload(w http.ResponseWriter, r *http.Request) {
@@ -49,11 +50,25 @@ func (h *SyncHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check subscription transaction limit before uploading
+	if h.billingSvc != nil {
+		if err := h.billingSvc.CheckTransactionLimit(r.Context(), *tenantID); err != nil {
+			response.Error(w, err)
+			return
+		}
+	}
+
 	result, err := h.svc.Upload(r.Context(), *tenantID, outletID, req.Transactions)
 	if err != nil {
 		response.Error(w, err)
 		return
 	}
+
+	// Track usage
+	if h.billingSvc != nil && result.Inserted > 0 {
+		_ = h.billingSvc.IncrementUsage(r.Context(), *tenantID, result.Inserted)
+	}
+
 	response.JSON(w, http.StatusOK, result)
 }
 
