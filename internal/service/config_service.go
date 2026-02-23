@@ -135,6 +135,66 @@ func (s *ConfigService) PushConfig(ctx context.Context, tenantID uuid.UUID, crea
 	return &cv, nil
 }
 
+// StoreSettingsUpdate contains the editable store settings fields.
+type StoreSettingsUpdate struct {
+	StoreName     string  `json:"store_name"`
+	Address       string  `json:"address"`
+	Phone         string  `json:"phone"`
+	TaxRate       float64 `json:"tax_rate"`
+	ReceiptFooter string  `json:"receipt_footer"`
+}
+
+// UpdateStoreSettings reads the current config, merges in the updated store fields,
+// and pushes a new config version.
+func (s *ConfigService) UpdateStoreSettings(ctx context.Context, tenantID uuid.UUID, createdBy uuid.UUID, update StoreSettingsUpdate) (*domain.ConfigVersion, error) {
+	// Get current config
+	current, err := s.GetCurrentConfig(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse existing data
+	var data map[string]any
+	if err := json.Unmarshal(current.Data, &data); err != nil {
+		return nil, apperror.Internal("failed to parse current config", err)
+	}
+
+	// Merge in updated fields
+	data["storeName"] = update.StoreName
+	data["address"] = update.Address
+	data["phone"] = update.Phone
+	data["taxRate"] = update.TaxRate
+	data["receiptFooter"] = update.ReceiptFooter
+
+	newData, err := json.Marshal(data)
+	if err != nil {
+		return nil, apperror.Internal("failed to marshal updated config", err)
+	}
+
+	q := middleware.GetQuerier(ctx, s.db)
+
+	cv := domain.ConfigVersion{
+		ID:        uuid.New(),
+		TenantID:  tenantID,
+		Data:      newData,
+		CreatedBy: createdBy,
+		CreatedAt: time.Now(),
+	}
+
+	err = q.QueryRow(ctx,
+		`INSERT INTO config_versions (id, tenant_id, version, data, created_by, created_at)
+		 SELECT $1, $2, COALESCE(MAX(version), 0) + 1, $3, $4, $5
+		 FROM config_versions WHERE tenant_id = $2
+		 RETURNING version`,
+		cv.ID, cv.TenantID, cv.Data, cv.CreatedBy, cv.CreatedAt).Scan(&cv.Version)
+	if err != nil {
+		return nil, apperror.Internal("failed to insert config version", err)
+	}
+
+	slog.Info("store settings updated", "tenant_id", tenantID, "version", cv.Version)
+	return &cv, nil
+}
+
 func (s *ConfigService) BroadcastConfig(ctx context.Context, req domain.PushConfigRequest, createdBy uuid.UUID) ([]domain.ConfigVersion, error) {
 	q := middleware.GetQuerier(ctx, s.db)
 

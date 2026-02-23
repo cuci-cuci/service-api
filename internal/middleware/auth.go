@@ -31,19 +31,23 @@ type Claims struct {
 func JWTAuth(jwtSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var tokenStr string
+
 			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				response.Error(w, apperror.Unauthorized("missing authorization header"))
+			if authHeader != "" {
+				parts := strings.SplitN(authHeader, " ", 2)
+				if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
+					response.Error(w, apperror.Unauthorized("invalid authorization header format"))
+					return
+				}
+				tokenStr = parts[1]
+			} else if qToken := r.URL.Query().Get("token"); qToken != "" {
+				// Fallback: accept token via query param (for SSE/EventSource)
+				tokenStr = qToken
+			} else {
+				response.Error(w, apperror.Unauthorized("missing authorization"))
 				return
 			}
-
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
-				response.Error(w, apperror.Unauthorized("invalid authorization header format"))
-				return
-			}
-
-			tokenStr := parts[1]
 			claims := &Claims{}
 
 			token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (any, error) {

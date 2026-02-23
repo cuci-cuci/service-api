@@ -40,7 +40,7 @@ func (s *SyncService) Upload(ctx context.Context, tenantID uuid.UUID, outletID u
 			 items, subtotal, discount_amount, tax_amount, total_amount, payment_status, payments,
 			 status, config_version_id, notes, created_by, created_at, synced_at)
 			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-			 ON CONFLICT (id) DO NOTHING`,
+			 ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, synced_at = EXCLUDED.synced_at`,
 			tx.ID, tenantID, outletID, tx.LocalOrderNumber, tx.CustomerName, tx.MemberID,
 			tx.Items, tx.Subtotal, tx.DiscountAmount, tx.TaxAmount, tx.TotalAmount,
 			tx.PaymentStatus, tx.Payments, tx.Status, tx.ConfigVersionID, tx.Notes,

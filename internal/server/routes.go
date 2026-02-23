@@ -90,6 +90,7 @@ func (s *Server) RegisterRoutes() {
 	ownerCashierHandler := owner.NewCashierHandler(userService, s.Validate)
 	ownerMemberHandler := owner.NewMemberHandler(memberService, s.Validate)
 	ownerAnalyticsHandler := owner.NewAnalyticsHandler(analyticsService)
+	ownerConfigHandler := owner.NewConfigHandler(configService)
 
 	syncHandler := pos.NewSyncHandler(syncService, s.Validate)
 	transactionHandler := pos.NewTransactionHandler(memberService)
@@ -255,6 +256,7 @@ func (s *Server) RegisterRoutes() {
 				r.Use(middleware.RequireSuperadmin())
 				r.Get("/health/outlets", syncMonitorHandler.OutletHealth)
 				r.Get("/health", syncMonitorHandler.GlobalHealth)
+				r.Get("/health/stream", syncMonitorHandler.StreamHealth)
 				r.Get("/sessions", syncMonitorHandler.ListSessions)
 			})
 
@@ -298,10 +300,16 @@ func (s *Server) RegisterRoutes() {
 			r.Post("/members", ownerMemberHandler.Create)
 			r.Put("/members/{id}", ownerMemberHandler.Update)
 
+			// Store settings (config)
+			r.Get("/store-settings", ownerConfigHandler.GetStoreSettings)
+			r.Put("/store-settings", ownerConfigHandler.UpdateStoreSettings)
+
 			// Analytics
 			r.Get("/analytics/summary", ownerAnalyticsHandler.Summary)
 			r.Get("/analytics/outlets", ownerAnalyticsHandler.RevenueByOutlet)
 			r.Get("/analytics/daily-revenue", ownerAnalyticsHandler.DailyRevenue)
+			r.Get("/analytics/by-service", ownerAnalyticsHandler.RevenueByService)
+			r.Get("/analytics/by-payment-method", ownerAnalyticsHandler.RevenueByPaymentMethod)
 		})
 
 		// POS routes (authenticated, tenant-scoped)

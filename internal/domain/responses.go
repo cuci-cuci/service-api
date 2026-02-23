@@ -71,6 +71,19 @@ type RevenueByOutletResponse struct {
 	TxCount    int       `json:"transaction_count"`
 }
 
+type RevenueByServiceResponse struct {
+	ServiceName string `json:"service_name"`
+	Revenue     int64  `json:"revenue"`
+	Quantity    int    `json:"quantity"`
+}
+
+type RevenueByPaymentMethodResponse struct {
+	MethodName string `json:"method_name"`
+	MethodType string `json:"method_type"`
+	Revenue    int64  `json:"revenue"`
+	TxCount    int    `json:"transaction_count"`
+}
+
 type TransactionStatsResponse struct {
 	TotalTransactions int   `json:"total_transactions"`
 	TotalRevenue      int64 `json:"total_revenue"`
