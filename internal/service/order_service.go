@@ -423,12 +423,19 @@ func (s *OrderService) CreateFromTransaction(ctx context.Context, tenantID uuid.
 
 	trackingToken := generateTrackingToken()
 
+	var estimatedAt *time.Time
+	if tx.EstimatedDurationHours != nil && *tx.EstimatedDurationHours > 0 {
+		t := now.Add(time.Duration(*tx.EstimatedDurationHours) * time.Hour)
+		estimatedAt = &t
+	}
+
 	_, err := q.Exec(ctx, `
 		INSERT INTO orders (id, transaction_id, tenant_id, outlet_id, status,
-		                    notes, tracking_token, created_by, updated_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, 'received', $5, $6, $7, $7, $8, $8)
+		                    estimated_completion_at, notes, customer_phone,
+		                    tracking_token, created_by, updated_by, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, 'received', $5, $6, $7, $8, $9, $9, $10, $10)
 		ON CONFLICT (transaction_id) DO NOTHING
-	`, orderID, tx.ID, tenantID, tx.OutletID, tx.Notes, trackingToken, userID, now)
+	`, orderID, tx.ID, tenantID, tx.OutletID, estimatedAt, tx.Notes, tx.CustomerPhone, trackingToken, userID, now)
 	if err != nil {
 		return apperror.Internal("failed to create order from transaction", err)
 	}
