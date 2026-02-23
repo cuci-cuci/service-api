@@ -55,6 +55,7 @@ type SyncDownloadResponse struct {
 type ServiceWithPrice struct {
 	ServiceTemplate
 	TenantPrice *int64 `json:"tenant_price,omitempty"`
+	IsQuickAdd  bool   `json:"is_quick_add"`
 }
 
 type RevenueByTenantResponse struct {

@@ -298,6 +298,7 @@ func (s *Server) RegisterRoutes() {
 			// Services & Pricing
 			r.Get("/services", ownerServicePriceHandler.ListServicesWithPrices)
 			r.Put("/service-prices/{templateId}", ownerServicePriceHandler.SetPrice)
+			r.Put("/service-prices/{templateId}/quick-add", ownerServicePriceHandler.SetQuickAdd)
 			r.Put("/service-prices/bulk", ownerServicePriceHandler.BulkSetPrices)
 
 			// Payment Methods

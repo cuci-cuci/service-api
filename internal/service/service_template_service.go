@@ -297,7 +297,7 @@ func (s *ServiceTemplateService) GetServicesWithPrices(ctx context.Context, tena
 	rows, err := q.Query(ctx,
 		`SELECT st.id, st.category_id, st.name, st.pricing_unit, st.base_price,
 		        st.estimated_duration_hours, st.is_active, st.sort_order, st.created_at,
-		        tsp.price
+		        tsp.price, COALESCE(tsp.is_quick_add, false)
 		 FROM service_templates st
 		 LEFT JOIN tenant_service_prices tsp ON st.id = tsp.service_template_id AND tsp.tenant_id = $1
 		 WHERE st.is_active = true
@@ -312,7 +312,7 @@ func (s *ServiceTemplateService) GetServicesWithPrices(ctx context.Context, tena
 		var svc domain.ServiceWithPrice
 		var tenantPrice *int64
 		if err := rows.Scan(&svc.ID, &svc.CategoryID, &svc.Name, &svc.PricingUnit, &svc.BasePrice,
-			&svc.EstimatedDurationHours, &svc.IsActive, &svc.SortOrder, &svc.CreatedAt, &tenantPrice); err != nil {
+			&svc.EstimatedDurationHours, &svc.IsActive, &svc.SortOrder, &svc.CreatedAt, &tenantPrice, &svc.IsQuickAdd); err != nil {
 			return nil, apperror.Internal("failed to scan service with price", err)
 		}
 		svc.TenantPrice = tenantPrice
@@ -324,4 +324,18 @@ func (s *ServiceTemplateService) GetServicesWithPrices(ctx context.Context, tena
 	}
 
 	return services, nil
+}
+
+func (s *ServiceTemplateService) SetQuickAdd(ctx context.Context, tenantID uuid.UUID, templateID uuid.UUID, quickAdd bool) error {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	_, err := q.Exec(ctx,
+		`INSERT INTO tenant_service_prices (id, tenant_id, service_template_id, price, is_active, is_quick_add)
+		 VALUES ($1, $2, $3, (SELECT base_price FROM service_templates WHERE id = $3), true, $4)
+		 ON CONFLICT (tenant_id, service_template_id) DO UPDATE SET is_quick_add = $4`,
+		uuid.New(), tenantID, templateID, quickAdd)
+	if err != nil {
+		return apperror.Internal("failed to set quick add", err)
+	}
+	return nil
 }

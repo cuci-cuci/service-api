@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 
 	"github.com/bangun-ekosistem/service-api/internal/domain"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
@@ -75,6 +76,35 @@ func (h *ServicePriceHandler) SetPrice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusOK, price)
+}
+
+func (h *ServicePriceHandler) SetQuickAdd(w http.ResponseWriter, r *http.Request) {
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+
+	templateIDStr := chi.URLParam(r, "templateId")
+	templateID, parseErr := uuid.Parse(templateIDStr)
+	if parseErr != nil {
+		response.Error(w, apperror.Validation("invalid template ID"))
+		return
+	}
+
+	var body struct {
+		QuickAdd bool `json:"quick_add"`
+	}
+	if decErr := json.NewDecoder(r.Body).Decode(&body); decErr != nil {
+		response.Error(w, apperror.Validation("invalid request body"))
+		return
+	}
+
+	if svcErr := h.svc.SetQuickAdd(r.Context(), tenantID, templateID, body.QuickAdd); svcErr != nil {
+		response.Error(w, svcErr)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]bool{"quick_add": body.QuickAdd})
 }
 
 func (h *ServicePriceHandler) BulkSetPrices(w http.ResponseWriter, r *http.Request) {

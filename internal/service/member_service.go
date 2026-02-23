@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +19,8 @@ import (
 	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
 )
 
+const memberSelectCols = `id, tenant_id, name, phone, email, tier, discount_percent, total_points, total_spending, referral_code, referred_by_member_id, has_first_transaction, created_at`
+
 type MemberService struct {
 	db *pgxpool.Pool
 }
@@ -24,12 +29,20 @@ func NewMemberService(db *pgxpool.Pool) *MemberService {
 	return &MemberService{db: db}
 }
 
+func scanMember(row interface{ Scan(dest ...any) error }) (domain.Member, error) {
+	var m domain.Member
+	err := row.Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier,
+		&m.DiscountPercent, &m.TotalPoints, &m.TotalSpending,
+		&m.ReferralCode, &m.ReferredByMemberID, &m.HasFirstTransaction, &m.CreatedAt)
+	return m, err
+}
+
 func (s *MemberService) List(ctx context.Context, tenantID *uuid.UUID, params pagination.Params) ([]domain.Member, int, error) {
 	q := middleware.GetQuerier(ctx, s.db)
 
 	var total int
 	countQuery := "SELECT COUNT(*) FROM members"
-	listQuery := `SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, total_spending, created_at FROM members`
+	listQuery := `SELECT ` + memberSelectCols + ` FROM members`
 	var args []any
 
 	if tenantID != nil {
@@ -56,9 +69,8 @@ func (s *MemberService) List(ctx context.Context, tenantID *uuid.UUID, params pa
 
 	var members []domain.Member
 	for rows.Next() {
-		var m domain.Member
-		if err := rows.Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier,
-			&m.DiscountPercent, &m.TotalPoints, &m.TotalSpending, &m.CreatedAt); err != nil {
+		m, err := scanMember(rows)
+		if err != nil {
 			return nil, 0, apperror.Internal("failed to scan member", err)
 		}
 		members = append(members, m)
@@ -85,27 +97,43 @@ func (s *MemberService) Create(ctx context.Context, tenantID *uuid.UUID, req dom
 
 	tier := req.Tier
 	if tier == "" {
-		// TODO: Use cfg.DefaultMemberTier from config instead of hardcoded value.
-		// Service layer does not currently have access to config; inject via constructor when refactoring.
 		tier = "bronze"
 	}
 
+	referralCode := generateReferralCode()
+
+	// Resolve referrer
+	var referredByMemberID *uuid.UUID
+	if req.ReferralCode != "" {
+		var referrerID uuid.UUID
+		err := q.QueryRow(ctx,
+			`SELECT id FROM members WHERE referral_code = $1`,
+			strings.ToUpper(strings.TrimSpace(req.ReferralCode))).Scan(&referrerID)
+		if err == nil {
+			referredByMemberID = &referrerID
+		}
+		// Silently ignore invalid referral codes
+	}
+
 	m := domain.Member{
-		ID:              uuid.New(),
-		TenantID:        tenantID,
-		Name:            req.Name,
-		Phone:           req.Phone,
-		Email:           req.Email,
-		Tier:            tier,
-		DiscountPercent: req.DiscountPercent,
-		TotalPoints:     0,
-		CreatedAt:       time.Now(),
+		ID:                  uuid.New(),
+		TenantID:            tenantID,
+		Name:                req.Name,
+		Phone:               req.Phone,
+		Email:               req.Email,
+		Tier:                tier,
+		DiscountPercent:     req.DiscountPercent,
+		TotalPoints:         0,
+		ReferralCode:        &referralCode,
+		ReferredByMemberID:  referredByMemberID,
+		HasFirstTransaction: false,
+		CreatedAt:           time.Now(),
 	}
 
 	_, err = q.Exec(ctx,
-		`INSERT INTO members (id, tenant_id, name, phone, email, tier, discount_percent, total_points, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		m.ID, m.TenantID, m.Name, m.Phone, m.Email, m.Tier, m.DiscountPercent, m.TotalPoints, m.CreatedAt)
+		`INSERT INTO members (id, tenant_id, name, phone, email, tier, discount_percent, total_points, referral_code, referred_by_member_id, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		m.ID, m.TenantID, m.Name, m.Phone, m.Email, m.Tier, m.DiscountPercent, m.TotalPoints, m.ReferralCode, m.ReferredByMemberID, m.CreatedAt)
 	if err != nil {
 		return nil, apperror.Internal("failed to create member", err)
 	}
@@ -118,10 +146,10 @@ func (s *MemberService) Update(ctx context.Context, id uuid.UUID, req domain.Upd
 
 	var m domain.Member
 	err := q.QueryRow(ctx,
-		`SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, total_spending, created_at
-		 FROM members WHERE id = $1`, id).
+		`SELECT `+memberSelectCols+` FROM members WHERE id = $1`, id).
 		Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier,
-			&m.DiscountPercent, &m.TotalPoints, &m.TotalSpending, &m.CreatedAt)
+			&m.DiscountPercent, &m.TotalPoints, &m.TotalSpending,
+			&m.ReferralCode, &m.ReferredByMemberID, &m.HasFirstTransaction, &m.CreatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, apperror.NotFound("member not found")
@@ -173,10 +201,10 @@ func (s *MemberService) LookupByPhone(ctx context.Context, phone string) (*domai
 
 	var m domain.Member
 	err := q.QueryRow(ctx,
-		`SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, total_spending, created_at
-		 FROM members WHERE phone = $1`, phone).
+		`SELECT `+memberSelectCols+` FROM members WHERE phone = $1`, phone).
 		Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier,
-			&m.DiscountPercent, &m.TotalPoints, &m.TotalSpending, &m.CreatedAt)
+			&m.DiscountPercent, &m.TotalPoints, &m.TotalSpending,
+			&m.ReferralCode, &m.ReferredByMemberID, &m.HasFirstTransaction, &m.CreatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, apperror.NotFound("member not found")
@@ -231,8 +259,10 @@ func (s *MemberService) UpdateSpending(ctx context.Context, memberID uuid.UUID, 
 	err := q.QueryRow(ctx, `
 		UPDATE members SET total_spending = total_spending + $1
 		WHERE id = $2
-		RETURNING id, tenant_id, name, phone, email, tier, discount_percent, total_points, total_spending, created_at
-	`, amount, memberID).Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier, &m.DiscountPercent, &m.TotalPoints, &m.TotalSpending, &m.CreatedAt)
+		RETURNING `+memberSelectCols+`
+	`, amount, memberID).Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier,
+		&m.DiscountPercent, &m.TotalPoints, &m.TotalSpending,
+		&m.ReferralCode, &m.ReferredByMemberID, &m.HasFirstTransaction, &m.CreatedAt)
 	if err != nil {
 		return nil, apperror.Internal("failed to update member spending", err)
 	}
@@ -249,6 +279,42 @@ func (s *MemberService) UpdateSpending(ctx context.Context, memberID uuid.UUID, 
 	}
 
 	return &m, nil
+}
+
+// AwardReferralPoints awards points to the referrer on the referred member's first transaction.
+func (s *MemberService) AwardReferralPoints(ctx context.Context, memberID uuid.UUID) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	var referredBy *uuid.UUID
+	var hasFirst bool
+	err := q.QueryRow(ctx,
+		`SELECT referred_by_member_id, has_first_transaction FROM members WHERE id = $1`, memberID).
+		Scan(&referredBy, &hasFirst)
+	if err != nil || referredBy == nil || hasFirst {
+		return
+	}
+
+	// Mark first transaction
+	_, err = q.Exec(ctx, `UPDATE members SET has_first_transaction = true WHERE id = $1`, memberID)
+	if err != nil {
+		slog.Error("failed to mark first transaction", "member_id", memberID, "error", err)
+		return
+	}
+
+	// Award 100 points to referrer
+	_, err = q.Exec(ctx, `UPDATE members SET total_points = total_points + 100 WHERE id = $1`, *referredBy)
+	if err != nil {
+		slog.Error("failed to award referral points", "referrer_id", *referredBy, "error", err)
+		return
+	}
+
+	slog.Info("referral points awarded", "referrer_id", *referredBy, "referred_member_id", memberID)
+}
+
+func generateReferralCode() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return strings.ToUpper(hex.EncodeToString(b))
 }
 
 func calculateTier(totalSpending int64) (string, int) {
