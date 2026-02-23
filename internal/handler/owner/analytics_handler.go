@@ -46,6 +46,42 @@ func (h *AnalyticsHandler) RevenueByOutlet(w http.ResponseWriter, r *http.Reques
 	response.JSON(w, http.StatusOK, results)
 }
 
+func (h *AnalyticsHandler) RevenueByService(w http.ResponseWriter, r *http.Request) {
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+
+	startDate := r.URL.Query().Get("start_date")
+	endDate := r.URL.Query().Get("end_date")
+
+	results, err := h.svc.RevenueByService(r.Context(), tenantID, startDate, endDate)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, results)
+}
+
+func (h *AnalyticsHandler) RevenueByPaymentMethod(w http.ResponseWriter, r *http.Request) {
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+
+	startDate := r.URL.Query().Get("start_date")
+	endDate := r.URL.Query().Get("end_date")
+
+	results, err := h.svc.RevenueByPaymentMethod(r.Context(), tenantID, startDate, endDate)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, results)
+}
+
 func (h *AnalyticsHandler) DailyRevenue(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := getTenantID(r)
 	if err != nil {

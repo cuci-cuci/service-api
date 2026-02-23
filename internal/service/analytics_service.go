@@ -159,6 +159,105 @@ func (s *AnalyticsService) TransactionStats(ctx context.Context, startDate, endD
 	return &stats, nil
 }
 
+func (s *AnalyticsService) RevenueByService(ctx context.Context, tenantID uuid.UUID, startDate, endDate string) ([]domain.RevenueByServiceResponse, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	query := `
+		SELECT item->>'serviceName' as service_name,
+		       COALESCE(SUM((item->>'subtotal')::bigint), 0) as revenue,
+		       COALESCE(SUM((item->>'quantity')::int), 0) as quantity
+		FROM transactions t,
+		     jsonb_array_elements(t.items) as item
+		WHERE t.tenant_id = $1 AND t.status = 'completed'
+	`
+	args := []any{tenantID}
+	argIdx := 2
+
+	if startDate != "" {
+		query += " AND t.created_at >= $" + strconv.Itoa(argIdx)
+		args = append(args, startDate)
+		argIdx++
+	}
+	if endDate != "" {
+		query += " AND t.created_at <= $" + strconv.Itoa(argIdx)
+		args = append(args, endDate)
+		argIdx++
+	}
+
+	query += " GROUP BY item->>'serviceName' ORDER BY revenue DESC"
+
+	rows, err := q.Query(ctx, query, args...)
+	if err != nil {
+		return nil, apperror.Internal("failed to query revenue by service", err)
+	}
+	defer rows.Close()
+
+	var results []domain.RevenueByServiceResponse
+	for rows.Next() {
+		var r domain.RevenueByServiceResponse
+		if err := rows.Scan(&r.ServiceName, &r.Revenue, &r.Quantity); err != nil {
+			return nil, apperror.Internal("failed to scan revenue by service", err)
+		}
+		results = append(results, r)
+	}
+
+	if results == nil {
+		results = []domain.RevenueByServiceResponse{}
+	}
+
+	return results, nil
+}
+
+func (s *AnalyticsService) RevenueByPaymentMethod(ctx context.Context, tenantID uuid.UUID, startDate, endDate string) ([]domain.RevenueByPaymentMethodResponse, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	query := `
+		SELECT pay->>'methodName' as method_name,
+		       COALESCE(pay->>'methodType', 'cash') as method_type,
+		       COALESCE(SUM((pay->>'amount')::bigint), 0) as revenue,
+		       COUNT(DISTINCT t.id) as transaction_count
+		FROM transactions t,
+		     jsonb_array_elements(t.payments) as pay
+		WHERE t.tenant_id = $1 AND t.status = 'completed'
+	`
+	args := []any{tenantID}
+	argIdx := 2
+
+	if startDate != "" {
+		query += " AND t.created_at >= $" + strconv.Itoa(argIdx)
+		args = append(args, startDate)
+		argIdx++
+	}
+	if endDate != "" {
+		query += " AND t.created_at <= $" + strconv.Itoa(argIdx)
+		args = append(args, endDate)
+		argIdx++
+	}
+
+	query += " GROUP BY pay->>'methodName', pay->>'methodType' ORDER BY revenue DESC"
+
+	rows, err := q.Query(ctx, query, args...)
+	if err != nil {
+		return nil, apperror.Internal("failed to query revenue by payment method", err)
+	}
+	defer rows.Close()
+
+	var results []domain.RevenueByPaymentMethodResponse
+	for rows.Next() {
+		var r domain.RevenueByPaymentMethodResponse
+		if err := rows.Scan(&r.MethodName, &r.MethodType, &r.Revenue, &r.TxCount); err != nil {
+			return nil, apperror.Internal("failed to scan revenue by payment method", err)
+		}
+		results = append(results, r)
+	}
+
+	if results == nil {
+		results = []domain.RevenueByPaymentMethodResponse{}
+	}
+
+	return results, nil
+}
+
 func (s *AnalyticsService) DailyRevenue(ctx context.Context, tenantID uuid.UUID, days int) ([]DailyRevenuePoint, error) {
 	q := middleware.GetQuerier(ctx, s.db)
 
