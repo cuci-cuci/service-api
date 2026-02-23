@@ -19,7 +19,9 @@ import (
 
 	"github.com/bangun-ekosistem/service-api/internal/config"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
+	"github.com/bangun-ekosistem/service-api/internal/scheduler"
 	"github.com/bangun-ekosistem/service-api/internal/server"
+	"github.com/bangun-ekosistem/service-api/internal/service"
 )
 
 func main() {
@@ -65,6 +67,13 @@ func main() {
 
 	// Create and start server
 	srv := server.NewServer(cfg, pool)
+
+	// Start daily summary scheduler
+	notifSvc := service.NewNotificationService(pool, cfg)
+	sched := scheduler.New(notifSvc)
+	schedCtx, schedCancel := context.WithCancel(ctx)
+	defer schedCancel()
+	sched.Start(schedCtx)
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)

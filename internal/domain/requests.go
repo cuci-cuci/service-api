@@ -112,6 +112,7 @@ type CreateMemberRequest struct {
 	Email           string `json:"email" validate:"omitempty,email"`
 	Tier            string `json:"tier" validate:"omitempty,oneof=bronze silver gold platinum"`
 	DiscountPercent int    `json:"discount_percent" validate:"omitempty,gte=0,lte=100"`
+	ReferralCode    string `json:"referral_code" validate:"omitempty,max=8"`
 }
 
 type UpdateMemberRequest struct {

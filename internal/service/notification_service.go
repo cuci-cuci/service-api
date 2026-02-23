@@ -19,13 +19,17 @@ import (
 )
 
 type NotificationSettings struct {
-	ID               uuid.UUID `json:"id"`
-	TenantID         uuid.UUID `json:"tenant_id"`
-	WhatsAppEnabled  bool      `json:"whatsapp_enabled"`
-	FonnteAPIToken   *string   `json:"fonnte_api_token,omitempty"`
-	NotifyOnReceived bool      `json:"notify_on_received"`
-	NotifyOnDone     bool      `json:"notify_on_done"`
-	NotifyOnPickedUp bool      `json:"notify_on_picked_up"`
+	ID                     uuid.UUID  `json:"id"`
+	TenantID               uuid.UUID  `json:"tenant_id"`
+	WhatsAppEnabled        bool       `json:"whatsapp_enabled"`
+	FonnteAPIToken         *string    `json:"fonnte_api_token,omitempty"`
+	NotifyOnReceived       bool       `json:"notify_on_received"`
+	NotifyOnDone           bool       `json:"notify_on_done"`
+	NotifyOnPickedUp       bool       `json:"notify_on_picked_up"`
+	DailySummaryEnabled    bool       `json:"daily_summary_enabled"`
+	DailySummaryTime       string     `json:"daily_summary_time"`
+	OwnerPhone             *string    `json:"owner_phone,omitempty"`
+	DailySummaryLastSentAt *time.Time `json:"-"`
 }
 
 type NotificationService struct {
@@ -43,13 +47,16 @@ func (s *NotificationService) GetSettings(ctx context.Context, tenantID uuid.UUI
 
 	var ns NotificationSettings
 	err := q.QueryRow(ctx,
-		`SELECT id, tenant_id, whatsapp_enabled, fonnte_api_token, notify_on_received, notify_on_done, notify_on_picked_up
+		`SELECT id, tenant_id, whatsapp_enabled, fonnte_api_token,
+		        notify_on_received, notify_on_done, notify_on_picked_up,
+		        daily_summary_enabled, daily_summary_time, owner_phone
 		 FROM tenant_notification_settings WHERE tenant_id = $1`, tenantID).
 		Scan(&ns.ID, &ns.TenantID, &ns.WhatsAppEnabled, &ns.FonnteAPIToken,
-			&ns.NotifyOnReceived, &ns.NotifyOnDone, &ns.NotifyOnPickedUp)
+			&ns.NotifyOnReceived, &ns.NotifyOnDone, &ns.NotifyOnPickedUp,
+			&ns.DailySummaryEnabled, &ns.DailySummaryTime, &ns.OwnerPhone)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return &NotificationSettings{TenantID: tenantID}, nil
+			return &NotificationSettings{TenantID: tenantID, DailySummaryTime: "20:00"}, nil
 		}
 		return nil, apperror.Internal("failed to get notification settings", err)
 	}
@@ -61,26 +68,148 @@ func (s *NotificationService) UpsertSettings(ctx context.Context, tenantID uuid.
 	q := middleware.GetQuerier(ctx, s.db)
 
 	now := time.Now()
+	summaryTime := req.DailySummaryTime
+	if summaryTime == "" {
+		summaryTime = "20:00"
+	}
+
 	var ns NotificationSettings
 	err := q.QueryRow(ctx,
-		`INSERT INTO tenant_notification_settings (id, tenant_id, whatsapp_enabled, fonnte_api_token, notify_on_received, notify_on_done, notify_on_picked_up, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+		`INSERT INTO tenant_notification_settings
+		   (id, tenant_id, whatsapp_enabled, fonnte_api_token, notify_on_received, notify_on_done, notify_on_picked_up,
+		    daily_summary_enabled, daily_summary_time, owner_phone, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
 		 ON CONFLICT (tenant_id) DO UPDATE SET
 		   whatsapp_enabled = EXCLUDED.whatsapp_enabled,
 		   fonnte_api_token = EXCLUDED.fonnte_api_token,
 		   notify_on_received = EXCLUDED.notify_on_received,
 		   notify_on_done = EXCLUDED.notify_on_done,
 		   notify_on_picked_up = EXCLUDED.notify_on_picked_up,
+		   daily_summary_enabled = EXCLUDED.daily_summary_enabled,
+		   daily_summary_time = EXCLUDED.daily_summary_time,
+		   owner_phone = EXCLUDED.owner_phone,
 		   updated_at = EXCLUDED.updated_at
-		 RETURNING id, tenant_id, whatsapp_enabled, fonnte_api_token, notify_on_received, notify_on_done, notify_on_picked_up`,
+		 RETURNING id, tenant_id, whatsapp_enabled, fonnte_api_token, notify_on_received, notify_on_done, notify_on_picked_up,
+		           daily_summary_enabled, daily_summary_time, owner_phone`,
 		uuid.New(), tenantID, req.WhatsAppEnabled, req.FonnteAPIToken,
-		req.NotifyOnReceived, req.NotifyOnDone, req.NotifyOnPickedUp, now).
+		req.NotifyOnReceived, req.NotifyOnDone, req.NotifyOnPickedUp,
+		req.DailySummaryEnabled, summaryTime, req.OwnerPhone, now).
 		Scan(&ns.ID, &ns.TenantID, &ns.WhatsAppEnabled, &ns.FonnteAPIToken,
-			&ns.NotifyOnReceived, &ns.NotifyOnDone, &ns.NotifyOnPickedUp)
+			&ns.NotifyOnReceived, &ns.NotifyOnDone, &ns.NotifyOnPickedUp,
+			&ns.DailySummaryEnabled, &ns.DailySummaryTime, &ns.OwnerPhone)
 	if err != nil {
 		return nil, apperror.Internal("failed to upsert notification settings", err)
 	}
 	return &ns, nil
+}
+
+// GetAllTenantsWithSummaryEnabled returns tenants that have daily summary enabled.
+func (s *NotificationService) GetAllTenantsWithSummaryEnabled(ctx context.Context) ([]NotificationSettings, error) {
+	rows, err := s.db.Query(ctx,
+		`SELECT tenant_id, fonnte_api_token, daily_summary_time, owner_phone, daily_summary_last_sent_at
+		 FROM tenant_notification_settings
+		 WHERE daily_summary_enabled = true
+		   AND fonnte_api_token IS NOT NULL AND fonnte_api_token != ''
+		   AND owner_phone IS NOT NULL AND owner_phone != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []NotificationSettings
+	for rows.Next() {
+		var ns NotificationSettings
+		if err := rows.Scan(&ns.TenantID, &ns.FonnteAPIToken, &ns.DailySummaryTime, &ns.OwnerPhone, &ns.DailySummaryLastSentAt); err != nil {
+			return nil, err
+		}
+		results = append(results, ns)
+	}
+	return results, nil
+}
+
+// BuildAndSendDailySummary builds and sends a daily revenue summary to the owner.
+func (s *NotificationService) BuildAndSendDailySummary(ctx context.Context, tenantID uuid.UUID, phone, apiToken string) error {
+	// Query today's revenue and transaction count
+	var revenue int64
+	var txCount int
+	err := s.db.QueryRow(ctx,
+		`SELECT COALESCE(SUM(total_amount),0), COUNT(*)
+		 FROM transactions
+		 WHERE tenant_id = $1 AND status = 'completed'
+		   AND created_at::date = CURRENT_DATE`, tenantID).Scan(&revenue, &txCount)
+	if err != nil {
+		return fmt.Errorf("query daily stats: %w", err)
+	}
+
+	// Query top 3 services today
+	type topService struct {
+		name    string
+		revenue int64
+	}
+	var topServices []topService
+	rows, err := s.db.Query(ctx,
+		`SELECT item->>'serviceName' as svc_name, COALESCE(SUM((item->>'subtotal')::bigint),0) as rev
+		 FROM transactions t, jsonb_array_elements(t.items) as item
+		 WHERE t.tenant_id = $1 AND t.status = 'completed'
+		   AND t.created_at::date = CURRENT_DATE
+		 GROUP BY svc_name
+		 ORDER BY rev DESC LIMIT 3`, tenantID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var ts topService
+			if err := rows.Scan(&ts.name, &ts.revenue); err == nil {
+				topServices = append(topServices, ts)
+			}
+		}
+	}
+
+	// Build message
+	today := time.Now().Format("02 Jan 2006")
+	avg := int64(0)
+	if txCount > 0 {
+		avg = revenue / int64(txCount)
+	}
+
+	msg := fmt.Sprintf("📊 *Ringkasan Harian - %s*\n\n", today)
+	msg += fmt.Sprintf("💰 Pendapatan: Rp %s\n", formatRupiah(revenue))
+	msg += fmt.Sprintf("🧾 Transaksi: %d\n", txCount)
+	msg += fmt.Sprintf("📈 Rata-rata: Rp %s\n", formatRupiah(avg))
+
+	if len(topServices) > 0 {
+		msg += "\n*Layanan Terlaris:*\n"
+		for i, svc := range topServices {
+			msg += fmt.Sprintf("%d. %s - Rp %s\n", i+1, svc.name, formatRupiah(svc.revenue))
+		}
+	}
+
+	msg += "\nTerima kasih atas kerja keras Anda hari ini! 💪"
+
+	if err := s.sendFonnte(apiToken, phone, msg); err != nil {
+		return fmt.Errorf("send summary: %w", err)
+	}
+
+	// Mark as sent
+	_, err = s.db.Exec(ctx,
+		`UPDATE tenant_notification_settings SET daily_summary_last_sent_at = NOW()
+		 WHERE tenant_id = $1`, tenantID)
+	return err
+}
+
+func formatRupiah(amount int64) string {
+	s := fmt.Sprintf("%d", amount)
+	n := len(s)
+	if n <= 3 {
+		return s
+	}
+	var result strings.Builder
+	for i, c := range s {
+		if i > 0 && (n-i)%3 == 0 {
+			result.WriteByte('.')
+		}
+		result.WriteRune(c)
+	}
+	return result.String()
 }
 
 // NotifyOrderStatus sends a WhatsApp notification for an order status change.
@@ -194,9 +323,12 @@ func (s *NotificationService) sendFonnte(apiToken, phone, message string) error 
 }
 
 type UpdateNotificationSettingsRequest struct {
-	WhatsAppEnabled  bool    `json:"whatsapp_enabled"`
-	FonnteAPIToken   *string `json:"fonnte_api_token"`
-	NotifyOnReceived bool    `json:"notify_on_received"`
-	NotifyOnDone     bool    `json:"notify_on_done"`
-	NotifyOnPickedUp bool    `json:"notify_on_picked_up"`
+	WhatsAppEnabled     bool    `json:"whatsapp_enabled"`
+	FonnteAPIToken      *string `json:"fonnte_api_token"`
+	NotifyOnReceived    bool    `json:"notify_on_received"`
+	NotifyOnDone        bool    `json:"notify_on_done"`
+	NotifyOnPickedUp    bool    `json:"notify_on_picked_up"`
+	DailySummaryEnabled bool    `json:"daily_summary_enabled"`
+	DailySummaryTime    string  `json:"daily_summary_time"`
+	OwnerPhone          *string `json:"owner_phone"`
 }

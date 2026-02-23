@@ -117,16 +117,19 @@ type Transaction struct {
 }
 
 type Member struct {
-	ID              uuid.UUID  `json:"id"`
-	TenantID        *uuid.UUID `json:"tenant_id,omitempty"`
-	Name            string     `json:"name"`
-	Phone           string     `json:"phone"`
-	Email           string     `json:"email"`
-	Tier            string     `json:"tier"`
-	DiscountPercent int        `json:"discount_percent"`
-	TotalPoints     int        `json:"total_points"`
-	TotalSpending   int64      `json:"total_spending"`
-	CreatedAt       time.Time  `json:"created_at"`
+	ID                  uuid.UUID  `json:"id"`
+	TenantID            *uuid.UUID `json:"tenant_id,omitempty"`
+	Name                string     `json:"name"`
+	Phone               string     `json:"phone"`
+	Email               string     `json:"email"`
+	Tier                string     `json:"tier"`
+	DiscountPercent     int        `json:"discount_percent"`
+	TotalPoints         int        `json:"total_points"`
+	TotalSpending       int64      `json:"total_spending"`
+	ReferralCode        *string    `json:"referral_code,omitempty"`
+	ReferredByMemberID  *uuid.UUID `json:"referred_by_member_id,omitempty"`
+	HasFirstTransaction bool       `json:"has_first_transaction"`
+	CreatedAt           time.Time  `json:"created_at"`
 }
 
 type AuditLog struct {
