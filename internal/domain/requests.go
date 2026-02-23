@@ -170,6 +170,7 @@ type CreateOrderRequest struct {
 	OutletID               string  `json:"outlet_id" validate:"required,uuid"`
 	EstimatedDurationHours int     `json:"estimated_duration_hours"`
 	Notes                  string  `json:"notes"`
+	CustomerPhone          string  `json:"customer_phone"`
 }
 
 type UpdateOrderStatusRequest struct {
@@ -185,4 +186,13 @@ type OpenShiftRequest struct {
 type CloseShiftRequest struct {
 	ClosingCash int64  `json:"closing_cash" validate:"gte=0"`
 	Notes       string `json:"notes"`
+}
+
+type RequestPasswordResetRequest struct {
+	Email string `json:"email" validate:"required,email"`
+}
+
+type ResetPasswordRequest struct {
+	Token       string `json:"token" validate:"required"`
+	NewPassword string `json:"new_password" validate:"required,min=8"`
 }

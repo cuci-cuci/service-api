@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +18,12 @@ import (
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
 )
+
+func generateTrackingToken() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return strings.ToUpper(hex.EncodeToString(b))
+}
 
 // validTransitions defines the allowed status transitions for orders.
 var validTransitions = map[string][]string{
@@ -40,6 +49,7 @@ func (s *OrderService) List(ctx context.Context, tenantID uuid.UUID, params pagi
 	dataQuery := `
 		SELECT o.id, o.transaction_id, o.tenant_id, o.outlet_id, o.status,
 		       o.estimated_completion_at, o.completed_at, o.picked_up_at, o.notes,
+		       o.customer_phone, o.tracking_token,
 		       o.created_by, o.updated_by, o.created_at, o.updated_at,
 		       t.customer_name, COALESCE(t.total_amount, 0), COALESCE(t.local_order_number, '')
 		FROM orders o
@@ -90,6 +100,7 @@ func (s *OrderService) List(ctx context.Context, tenantID uuid.UUID, params pagi
 		if err := rows.Scan(
 			&r.ID, &r.TransactionID, &r.TenantID, &r.OutletID, &r.Status,
 			&r.EstimatedCompletionAt, &r.CompletedAt, &r.PickedUpAt, &r.Notes,
+			&r.CustomerPhone, &r.TrackingToken,
 			&r.CreatedBy, &r.UpdatedBy, &r.CreatedAt, &r.UpdatedAt,
 			&r.CustomerName, &r.TotalAmount, &r.OrderNumber,
 		); err != nil {
@@ -112,6 +123,7 @@ func (s *OrderService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Order
 	err := q.QueryRow(ctx, `
 		SELECT o.id, o.transaction_id, o.tenant_id, o.outlet_id, o.status,
 		       o.estimated_completion_at, o.completed_at, o.picked_up_at, o.notes,
+		       o.customer_phone, o.tracking_token,
 		       o.created_by, o.updated_by, o.created_at, o.updated_at,
 		       t.customer_name, COALESCE(t.total_amount, 0), COALESCE(t.local_order_number, '')
 		FROM orders o
@@ -120,6 +132,7 @@ func (s *OrderService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Order
 	`, id).Scan(
 		&r.ID, &r.TransactionID, &r.TenantID, &r.OutletID, &r.Status,
 		&r.EstimatedCompletionAt, &r.CompletedAt, &r.PickedUpAt, &r.Notes,
+		&r.CustomerPhone, &r.TrackingToken,
 		&r.CreatedBy, &r.UpdatedBy, &r.CreatedAt, &r.UpdatedAt,
 		&r.CustomerName, &r.TotalAmount, &r.OrderNumber,
 	)
@@ -206,14 +219,22 @@ func (s *OrderService) Create(ctx context.Context, tenantID uuid.UUID, userID uu
 		notes = &req.Notes
 	}
 
+	var custPhone *string
+	if req.CustomerPhone != "" {
+		custPhone = &req.CustomerPhone
+	}
+
+	trackingToken := generateTrackingToken()
+
 	orderID := uuid.New()
 	now := time.Now()
 
 	_, err = q.Exec(ctx, `
 		INSERT INTO orders (id, transaction_id, tenant_id, outlet_id, status,
-		                    estimated_completion_at, notes, created_by, updated_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, 'received', $5, $6, $7, $7, $8, $8)
-	`, orderID, txID, tenantID, outletID, estimatedAt, notes, userID, now)
+		                    estimated_completion_at, notes, customer_phone, tracking_token,
+		                    created_by, updated_by, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, 'received', $5, $6, $7, $8, $9, $9, $10, $10)
+	`, orderID, txID, tenantID, outletID, estimatedAt, notes, custPhone, trackingToken, userID, now)
 	if err != nil {
 		return nil, apperror.Internal("failed to create order", err)
 	}
@@ -235,6 +256,8 @@ func (s *OrderService) Create(ctx context.Context, tenantID uuid.UUID, userID uu
 		Status:                "received",
 		EstimatedCompletionAt: estimatedAt,
 		Notes:                 notes,
+		CustomerPhone:         custPhone,
+		TrackingToken:         &trackingToken,
 		CreatedBy:             userID,
 		UpdatedBy:             userID,
 		CreatedAt:             now,
@@ -252,11 +275,13 @@ func (s *OrderService) UpdateStatus(ctx context.Context, id uuid.UUID, userID uu
 	err := q.QueryRow(ctx, `
 		SELECT id, transaction_id, tenant_id, outlet_id, status,
 		       estimated_completion_at, completed_at, picked_up_at, notes,
+		       customer_phone, tracking_token,
 		       created_by, updated_by, created_at, updated_at
 		FROM orders WHERE id = $1
 	`, id).Scan(
 		&order.ID, &order.TransactionID, &order.TenantID, &order.OutletID, &order.Status,
 		&order.EstimatedCompletionAt, &order.CompletedAt, &order.PickedUpAt, &order.Notes,
+		&order.CustomerPhone, &order.TrackingToken,
 		&order.CreatedBy, &order.UpdatedBy, &order.CreatedAt, &order.UpdatedAt,
 	)
 	if err != nil {
@@ -342,6 +367,7 @@ func (s *OrderService) ListActive(ctx context.Context, tenantID uuid.UUID, outle
 	query := `
 		SELECT o.id, o.transaction_id, o.tenant_id, o.outlet_id, o.status,
 		       o.estimated_completion_at, o.completed_at, o.picked_up_at, o.notes,
+		       o.customer_phone, o.tracking_token,
 		       o.created_by, o.updated_by, o.created_at, o.updated_at,
 		       t.customer_name, COALESCE(t.total_amount, 0), COALESCE(t.local_order_number, '')
 		FROM orders o
@@ -373,6 +399,7 @@ func (s *OrderService) ListActive(ctx context.Context, tenantID uuid.UUID, outle
 		if err := rows.Scan(
 			&r.ID, &r.TransactionID, &r.TenantID, &r.OutletID, &r.Status,
 			&r.EstimatedCompletionAt, &r.CompletedAt, &r.PickedUpAt, &r.Notes,
+			&r.CustomerPhone, &r.TrackingToken,
 			&r.CreatedBy, &r.UpdatedBy, &r.CreatedAt, &r.UpdatedAt,
 			&r.CustomerName, &r.TotalAmount, &r.OrderNumber,
 		); err != nil {
@@ -394,12 +421,14 @@ func (s *OrderService) CreateFromTransaction(ctx context.Context, tenantID uuid.
 	orderID := uuid.New()
 	now := time.Now()
 
+	trackingToken := generateTrackingToken()
+
 	_, err := q.Exec(ctx, `
 		INSERT INTO orders (id, transaction_id, tenant_id, outlet_id, status,
-		                    notes, created_by, updated_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, 'received', $5, $6, $6, $7, $7)
+		                    notes, tracking_token, created_by, updated_by, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, 'received', $5, $6, $7, $7, $8, $8)
 		ON CONFLICT (transaction_id) DO NOTHING
-	`, orderID, tx.ID, tenantID, tx.OutletID, tx.Notes, userID, now)
+	`, orderID, tx.ID, tenantID, tx.OutletID, tx.Notes, trackingToken, userID, now)
 	if err != nil {
 		return apperror.Internal("failed to create order from transaction", err)
 	}
@@ -415,4 +444,57 @@ func (s *OrderService) CreateFromTransaction(ctx context.Context, tenantID uuid.
 	}
 
 	return nil
+}
+
+// GetByTrackingToken returns an order by its public tracking token (no auth required).
+func (s *OrderService) GetByTrackingToken(ctx context.Context, token string) (*domain.OrderTrackingResponse, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	var r domain.OrderTrackingResponse
+	err := q.QueryRow(ctx, `
+		SELECT o.id, o.status, o.estimated_completion_at, o.completed_at, o.picked_up_at,
+		       o.tracking_token, o.created_at,
+		       t.customer_name, COALESCE(t.local_order_number, ''),
+		       tn.name
+		FROM orders o
+		LEFT JOIN transactions t ON o.transaction_id = t.id
+		JOIN tenants tn ON o.tenant_id = tn.id
+		WHERE o.tracking_token = $1
+	`, token).Scan(
+		&r.ID, &r.Status, &r.EstimatedCompletionAt, &r.CompletedAt, &r.PickedUpAt,
+		&r.TrackingToken, &r.CreatedAt,
+		&r.CustomerName, &r.OrderNumber,
+		&r.BusinessName,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, apperror.NotFound("pesanan tidak ditemukan")
+		}
+		return nil, apperror.Internal("failed to get order by tracking token", err)
+	}
+
+	// Get status logs
+	logRows, err := q.Query(ctx, `
+		SELECT to_status, created_at
+		FROM order_status_logs
+		WHERE order_id = $1
+		ORDER BY created_at ASC
+	`, r.ID)
+	if err != nil {
+		return nil, apperror.Internal("failed to get status logs", err)
+	}
+	defer logRows.Close()
+
+	for logRows.Next() {
+		var entry domain.TrackingStatusEntry
+		if err := logRows.Scan(&entry.Status, &entry.Timestamp); err != nil {
+			return nil, apperror.Internal("failed to scan status log", err)
+		}
+		r.StatusHistory = append(r.StatusHistory, entry)
+	}
+	if r.StatusHistory == nil {
+		r.StatusHistory = []domain.TrackingStatusEntry{}
+	}
+
+	return &r, nil
 }

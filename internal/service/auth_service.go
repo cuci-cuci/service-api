@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log/slog"
 	"time"
 
@@ -218,7 +220,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshToken string) (*d
 
 func (s *AuthService) generateTokenPair(user domain.User) (*domain.TokenResponse, error) {
 	now := time.Now()
-	expiresAt := now.Add(time.Duration(s.cfg.JWTExpiryHours) * time.Hour)
+	expiresAt := now.Add(time.Duration(s.cfg.JWTExpiryMinutes) * time.Minute)
 
 	accessClaims := &middleware.Claims{
 		UserID:   user.ID,
@@ -238,7 +240,7 @@ func (s *AuthService) generateTokenPair(user domain.User) (*domain.TokenResponse
 		return nil, apperror.Internal("failed to sign access token", err)
 	}
 
-	refreshExpiresAt := now.Add(time.Duration(s.cfg.JWTExpiryHours*7) * time.Hour)
+	refreshExpiresAt := now.Add(time.Duration(s.cfg.JWTRefreshExpiryDays) * 24 * time.Hour)
 	refreshClaims := &middleware.Claims{
 		UserID:   user.ID,
 		Role:     user.Role,
@@ -263,6 +265,82 @@ func (s *AuthService) generateTokenPair(user domain.User) (*domain.TokenResponse
 		ExpiresAt:    expiresAt,
 		User:         domain.ToUserResponse(user),
 	}, nil
+}
+
+// RequestPasswordReset creates a reset token for the given email.
+// Returns the token (in production, this would be sent via email/WhatsApp).
+func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) (string, error) {
+	var userID uuid.UUID
+	err := s.db.QueryRow(ctx, `SELECT id FROM users WHERE email = $1 AND is_active = true`, email).Scan(&userID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			// Don't reveal whether email exists
+			return "", nil
+		}
+		return "", apperror.Internal("failed to query user", err)
+	}
+
+	// Generate secure random token
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", apperror.Internal("failed to generate token", err)
+	}
+	token := hex.EncodeToString(tokenBytes)
+
+	// Invalidate any existing tokens for this user
+	_, _ = s.db.Exec(ctx, `UPDATE password_reset_tokens SET used_at = now() WHERE user_id = $1 AND used_at IS NULL`, userID)
+
+	// Store new token (valid for 1 hour)
+	expiresAt := time.Now().Add(1 * time.Hour)
+	_, err = s.db.Exec(ctx,
+		`INSERT INTO password_reset_tokens (id, user_id, token, expires_at, created_at)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		uuid.New(), userID, token, expiresAt, time.Now())
+	if err != nil {
+		return "", apperror.Internal("failed to create reset token", err)
+	}
+
+	return token, nil
+}
+
+// ResetPassword validates the token and sets a new password.
+func (s *AuthService) ResetPassword(ctx context.Context, token string, newPassword string) error {
+	var userID uuid.UUID
+	var expiresAt time.Time
+	var tokenID uuid.UUID
+	err := s.db.QueryRow(ctx,
+		`SELECT id, user_id, expires_at FROM password_reset_tokens
+		 WHERE token = $1 AND used_at IS NULL`, token).
+		Scan(&tokenID, &userID, &expiresAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return apperror.Validation("token tidak valid atau sudah digunakan")
+		}
+		return apperror.Internal("failed to validate token", err)
+	}
+
+	if time.Now().After(expiresAt) {
+		return apperror.Validation("token sudah kadaluarsa")
+	}
+
+	// Hash new password
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return apperror.Internal("failed to hash password", err)
+	}
+
+	// Update password
+	_, err = s.db.Exec(ctx,
+		`UPDATE users SET password_hash = $1, updated_at = $2 WHERE id = $3`,
+		string(passwordHash), time.Now(), userID)
+	if err != nil {
+		return apperror.Internal("failed to update password", err)
+	}
+
+	// Mark token as used
+	_, _ = s.db.Exec(ctx, `UPDATE password_reset_tokens SET used_at = $1 WHERE id = $2`, time.Now(), tokenID)
+
+	return nil
 }
 
 func HashPassword(password string) (string, error) {

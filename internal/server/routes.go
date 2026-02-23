@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -67,9 +68,11 @@ func (s *Server) RegisterRoutes() {
 	userService := service.NewUserService(s.DB)
 	dashboardService := service.NewDashboardService(s.DB)
 	syncMonitorService := service.NewSyncMonitorService(s.DB)
+	billingService := service.NewBillingService(s.DB)
+	notificationService := service.NewNotificationService(s.DB, s.Config)
 
-	// Handlers (FIX 5: pass auditService to handlers that need it)
-	authHandler := handler.NewAuthHandler(authService, s.Validate)
+	// Handlers
+	authHandler := handler.NewAuthHandler(authService, billingService, s.Validate)
 	tenantHandler := admin.NewTenantHandler(tenantService, auditService, s.Validate)
 	outletHandler := admin.NewOutletHandler(outletService, s.Validate)
 	templateHandler := admin.NewServiceTemplateHandler(templateService, s.Validate)
@@ -84,19 +87,23 @@ func (s *Server) RegisterRoutes() {
 
 	paymentMethodService := service.NewPaymentMethodService(s.DB)
 
-	ownerOutletHandler := owner.NewOutletHandler(outletService, s.Validate)
+	ownerOutletHandler := owner.NewOutletHandler(outletService, billingService, s.Validate)
 	ownerServicePriceHandler := owner.NewServicePriceHandler(templateService, s.Validate)
 	ownerPaymentMethodHandler := owner.NewPaymentMethodHandler(paymentMethodService, s.Validate)
 	ownerCashierHandler := owner.NewCashierHandler(userService, s.Validate)
 	ownerMemberHandler := owner.NewMemberHandler(memberService, s.Validate)
 	ownerAnalyticsHandler := owner.NewAnalyticsHandler(analyticsService)
 	ownerConfigHandler := owner.NewConfigHandler(configService)
+	ownerBillingHandler := owner.NewBillingHandler(billingService)
+	ownerNotificationHandler := owner.NewNotificationHandler(notificationService)
 
-	syncHandler := pos.NewSyncHandler(syncService, s.Validate)
+	trackingHandler := handler.NewTrackingHandler(orderService)
+
+	syncHandler := pos.NewSyncHandler(syncService, billingService, s.Validate)
 	transactionHandler := pos.NewTransactionHandler(memberService)
 	memberHandler := pos.NewMemberHandler(memberService)
 	posOutletHandler := pos.NewOutletHandler(outletService)
-	orderHandler := pos.NewOrderHandler(orderService, s.Validate)
+	orderHandler := pos.NewOrderHandler(orderService, notificationService, s.Validate)
 	shiftHandler := pos.NewShiftHandler(shiftService, s.Validate)
 
 	// Health check
@@ -106,12 +113,21 @@ func (s *Server) RegisterRoutes() {
 
 	// API v1
 	s.Router.Route("/api/v1", func(r chi.Router) {
-		// Auth (public)
+		// Auth (public, rate-limited)
 		r.Route("/auth", func(r chi.Router) {
+			r.Use(middleware.RateLimit(20, time.Minute))
 			r.Post("/login", authHandler.Login)
 			r.Post("/refresh", authHandler.RefreshToken)
 			r.Post("/register", authHandler.Register)
+			r.Post("/forgot-password", authHandler.RequestPasswordReset)
+			r.Post("/reset-password", authHandler.ResetPassword)
 		})
+
+		// Public: list subscription plans (no auth needed)
+		r.Get("/plans", ownerBillingHandler.ListPlans)
+
+		// Public: order tracking (no auth needed)
+		r.Get("/track/{token}", trackingHandler.GetByToken)
 
 		// Admin routes (authenticated)
 		r.Route("/admin", func(r chi.Router) {
@@ -303,6 +319,13 @@ func (s *Server) RegisterRoutes() {
 			// Store settings (config)
 			r.Get("/store-settings", ownerConfigHandler.GetStoreSettings)
 			r.Put("/store-settings", ownerConfigHandler.UpdateStoreSettings)
+
+			// Subscription & billing
+			r.Get("/subscription", ownerBillingHandler.GetSubscription)
+
+			// Notification settings (WhatsApp)
+			r.Get("/notification-settings", ownerNotificationHandler.GetSettings)
+			r.Put("/notification-settings", ownerNotificationHandler.UpdateSettings)
 
 			// Analytics
 			r.Get("/analytics/summary", ownerAnalyticsHandler.Summary)
