@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,6 +52,10 @@ func (s *ShiftService) OpenShift(ctx context.Context, tenantID uuid.UUID, cashie
 		VALUES ($1, $2, $3, $4, $5, 'open', $6, $6)
 	`, shiftID, tenantID, outletID, cashierID, req.OpeningCash, now)
 	if err != nil {
+		// Handle unique constraint from idx_shifts_one_open_per_cashier
+		if strings.Contains(err.Error(), "idx_shifts_one_open_per_cashier") || strings.Contains(err.Error(), "duplicate key") {
+			return nil, apperror.Conflict("cashier already has an open shift")
+		}
 		return nil, apperror.Internal("failed to create shift", err)
 	}
 
@@ -105,14 +111,18 @@ func (s *ShiftService) CloseShift(ctx context.Context, shiftID uuid.UUID, cashie
 		)
 	`, shiftID).Scan(&expectedCash)
 	if err != nil {
-		// If the query fails (e.g., no payments column as jsonb), fallback to sum of all transactions
+		slog.Warn("failed to calculate cash-only expected amount, falling back to total",
+			"shift_id", shiftID, "error", err)
 		expectedCash = 0
-		_ = q.QueryRow(ctx, `
+		if fallbackErr := q.QueryRow(ctx, `
 			SELECT COALESCE(SUM(t.total_amount), 0)
 			FROM shift_transactions st
 			JOIN transactions t ON st.transaction_id = t.id
 			WHERE st.shift_id = $1 AND t.status = 'completed'
-		`, shiftID).Scan(&expectedCash)
+		`, shiftID).Scan(&expectedCash); fallbackErr != nil {
+			slog.Error("failed to calculate expected cash fallback",
+				"shift_id", shiftID, "error", fallbackErr)
+		}
 	}
 
 	expectedCashTotal := shift.OpeningCash + expectedCash

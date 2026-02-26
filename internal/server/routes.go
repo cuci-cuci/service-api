@@ -346,6 +346,8 @@ func (s *Server) RegisterRoutes() {
 			r.Get("/sync/download", syncHandler.Download)
 			r.Get("/transactions", transactionHandler.List)
 			r.Get("/members/lookup", memberHandler.Lookup)
+			r.Get("/members/search", memberHandler.Search)
+			r.Post("/members", memberHandler.Register)
 			r.Get("/outlets", posOutletHandler.List)
 
 			r.Get("/orders", orderHandler.List)
