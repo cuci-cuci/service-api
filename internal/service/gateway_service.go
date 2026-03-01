@@ -1,10 +1,14 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -235,7 +239,48 @@ func (s *GatewayService) CreateGatewayPayment(ctx context.Context, tenantID uuid
 		return nil, apperror.Internal("failed to create gateway payment", err)
 	}
 
-	// TODO Phase 3: If status is PENDING (new or reset), call Xendit API here
+	// If status is PENDING (new or reset from EXPIRED/FAILED), call Xendit to create invoice.
+	if resp.GatewayStatus == "PENDING" {
+		secretKey, err := s.getDecryptedSecretKey(ctx, tenantID)
+		if err != nil {
+			return nil, err
+		}
+
+		invoiceResp, err := s.callXenditCreateInvoice(secretKey, xenditInvoiceRequest{
+			ExternalID:     externalID,
+			Amount:         req.Amount,
+			PaymentMethods: mapGatewayTypeToPaymentMethods(req.GatewayType),
+		})
+		if err != nil {
+			slog.Error("xendit create invoice failed",
+				"external_id", externalID, "error", err)
+			return nil, apperror.Internal("failed to create payment with gateway", err)
+		}
+
+		// Update DB with Xendit response: set ACTIVE, store URL + ref + expiry
+		err = q.QueryRow(ctx, `
+			UPDATE transaction_gateway_payments
+			SET gateway_status = 'ACTIVE',
+			    gateway_ref_id = $1,
+			    gateway_payment_url = $2,
+			    expires_at = $3,
+			    gateway_response = $4,
+			    updated_at = $5
+			WHERE external_id = $6
+			RETURNING id, external_id, gateway_status, gateway_type, amount,
+			          gateway_payment_url, expires_at, created_at
+		`, invoiceResp.ID, invoiceResp.InvoiceURL, invoiceResp.ExpiryDate,
+			invoiceResp.RawJSON, time.Now(), externalID,
+		).Scan(
+			&resp.ID, &resp.ExternalID, &resp.GatewayStatus, &resp.GatewayType,
+			&resp.Amount, &resp.GatewayPaymentURL, &resp.ExpiresAt, &resp.CreatedAt,
+		)
+		if err != nil {
+			slog.Error("failed to update payment after xendit call",
+				"external_id", externalID, "error", err)
+			return nil, apperror.Internal("failed to update gateway payment", err)
+		}
+	}
 
 	return &resp, nil
 }
@@ -373,6 +418,114 @@ func (s *GatewayService) ProcessWebhook(ctx context.Context, callbackToken strin
 	}
 
 	return nil
+}
+
+// --- Xendit API helpers ---
+
+// getDecryptedSecretKey retrieves and decrypts the tenant's Xendit secret key.
+func (s *GatewayService) getDecryptedSecretKey(ctx context.Context, tenantID uuid.UUID) (string, error) {
+	if s.cfg.GatewayEncryptionKey == "" {
+		return "", apperror.Internal("gateway encryption key not configured", nil)
+	}
+
+	q := middleware.GetQuerier(ctx, s.db)
+	var encrypted string
+	err := q.QueryRow(ctx, `
+		SELECT COALESCE(secret_key_encrypted, '')
+		FROM payment_gateway_configs
+		WHERE tenant_id = $1 AND gateway = 'xendit'
+	`, tenantID).Scan(&encrypted)
+	if err != nil {
+		return "", apperror.Internal("failed to get gateway secret key", err)
+	}
+	if encrypted == "" {
+		return "", apperror.Validation("gateway secret key not configured")
+	}
+
+	plaintext, err := encrypt.Decrypt(s.cfg.GatewayEncryptionKey, encrypted)
+	if err != nil {
+		return "", apperror.Internal("failed to decrypt gateway secret key", err)
+	}
+	return plaintext, nil
+}
+
+type xenditInvoiceRequest struct {
+	ExternalID     string
+	Amount         int64
+	PaymentMethods []string
+}
+
+type xenditInvoiceResponse struct {
+	ID         string    `json:"id"`
+	InvoiceURL string    `json:"invoice_url"`
+	Status     string    `json:"status"`
+	ExpiryDate time.Time `json:"expiry_date"`
+	RawJSON    []byte    // Store the full response for auditing
+}
+
+// callXenditCreateInvoice calls POST /v2/invoices on the Xendit API.
+func (s *GatewayService) callXenditCreateInvoice(secretKey string, req xenditInvoiceRequest) (*xenditInvoiceResponse, error) {
+	body := map[string]interface{}{
+		"external_id":      req.ExternalID,
+		"amount":           req.Amount,
+		"currency":         "IDR",
+		"payment_methods":  req.PaymentMethods,
+		"description":      "LaundryPOS Payment",
+		"invoice_duration": 1800, // 30 minutes
+	}
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequest("POST", s.cfg.XenditAPIURL+"/v2/invoices", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	// Xendit uses HTTP Basic Auth: base64(secretKey + ":")
+	httpReq.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(secretKey+":")))
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	httpResp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	respBody, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if httpResp.StatusCode >= 400 {
+		slog.Error("xendit API error",
+			"status", httpResp.StatusCode,
+			"body", string(respBody))
+		return nil, fmt.Errorf("xendit API returned %d", httpResp.StatusCode)
+	}
+
+	var result xenditInvoiceResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	result.RawJSON = respBody
+
+	return &result, nil
+}
+
+// mapGatewayTypeToPaymentMethods maps our internal gateway type to Xendit payment_methods.
+func mapGatewayTypeToPaymentMethods(gatewayType string) []string {
+	switch gatewayType {
+	case "qris":
+		return []string{"QRIS"}
+	case "virtual_account":
+		return []string{"BCA", "BNI", "MANDIRI", "PERMATA", "BRI"}
+	case "ewallet":
+		return []string{"OVO", "DANA", "SHOPEEPAY", "LINKAJA"}
+	default:
+		return []string{"QRIS"} // Fallback to QRIS
+	}
 }
 
 func toGatewayConfigResponse(cfg *domain.PaymentGatewayConfig) *domain.GatewayConfigResponse {

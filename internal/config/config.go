@@ -23,6 +23,7 @@ type Config struct {
 	FonnteAPIURL         string `env:"FONNTE_API_URL" envDefault:"https://api.fonnte.com/send"`
 	GatewayEncryptionKey string `env:"GATEWAY_ENCRYPTION_KEY"`
 	XenditWebhookToken   string `env:"XENDIT_WEBHOOK_TOKEN"`
+	XenditAPIURL         string `env:"XENDIT_API_URL" envDefault:"https://api.xendit.co"`
 }
 
 func Load() (*Config, error) {
