@@ -20,7 +20,9 @@ type Config struct {
 	DefaultPerPage     int    `env:"DEFAULT_PER_PAGE" envDefault:"20"`
 	MaxPerPage         int    `env:"MAX_PER_PAGE" envDefault:"100"`
 	DefaultMemberTier  string `env:"DEFAULT_MEMBER_TIER" envDefault:"bronze"`
-	FonnteAPIURL       string `env:"FONNTE_API_URL" envDefault:"https://api.fonnte.com/send"`
+	FonnteAPIURL         string `env:"FONNTE_API_URL" envDefault:"https://api.fonnte.com/send"`
+	GatewayEncryptionKey string `env:"GATEWAY_ENCRYPTION_KEY"`
+	XenditWebhookToken   string `env:"XENDIT_WEBHOOK_TOKEN"`
 }
 
 func Load() (*Config, error) {

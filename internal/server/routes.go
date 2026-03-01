@@ -70,6 +70,7 @@ func (s *Server) RegisterRoutes() {
 	syncMonitorService := service.NewSyncMonitorService(s.DB)
 	billingService := service.NewBillingService(s.DB)
 	notificationService := service.NewNotificationService(s.DB, s.Config)
+	gatewayService := service.NewGatewayService(s.DB, s.Config)
 
 	// Handlers
 	authHandler := handler.NewAuthHandler(authService, billingService, s.Validate)
@@ -96,8 +97,10 @@ func (s *Server) RegisterRoutes() {
 	ownerConfigHandler := owner.NewConfigHandler(configService)
 	ownerBillingHandler := owner.NewBillingHandler(billingService)
 	ownerNotificationHandler := owner.NewNotificationHandler(notificationService)
+	ownerGatewayHandler := owner.NewGatewayHandler(gatewayService, s.Validate)
 
 	trackingHandler := handler.NewTrackingHandler(orderService)
+	webhookHandler := handler.NewWebhookHandler(gatewayService)
 
 	syncHandler := pos.NewSyncHandler(syncService, billingService, s.Validate)
 	transactionHandler := pos.NewTransactionHandler(memberService)
@@ -105,6 +108,7 @@ func (s *Server) RegisterRoutes() {
 	posOutletHandler := pos.NewOutletHandler(outletService)
 	orderHandler := pos.NewOrderHandler(orderService, notificationService, s.Validate)
 	shiftHandler := pos.NewShiftHandler(shiftService, s.Validate)
+	posGatewayHandler := pos.NewGatewayHandler(gatewayService, s.Validate)
 
 	// Health check
 	s.Router.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -128,6 +132,9 @@ func (s *Server) RegisterRoutes() {
 
 		// Public: order tracking (no auth needed)
 		r.Get("/track/{token}", trackingHandler.GetByToken)
+
+		// Public: Xendit webhook (no auth, uses x-callback-token header)
+		r.Post("/webhooks/xendit", webhookHandler.XenditCallback)
 
 		// Admin routes (authenticated)
 		r.Route("/admin", func(r chi.Router) {
@@ -328,6 +335,11 @@ func (s *Server) RegisterRoutes() {
 			r.Get("/notification-settings", ownerNotificationHandler.GetSettings)
 			r.Put("/notification-settings", ownerNotificationHandler.UpdateSettings)
 
+			// Payment Gateway Config
+			r.Get("/gateway-config", ownerGatewayHandler.GetConfig)
+			r.Put("/gateway-config", ownerGatewayHandler.UpsertConfig)
+			r.Patch("/gateway-config/enabled", ownerGatewayHandler.SetEnabled)
+
 			// Analytics
 			r.Get("/analytics/summary", ownerAnalyticsHandler.Summary)
 			r.Get("/analytics/outlets", ownerAnalyticsHandler.RevenueByOutlet)
@@ -363,6 +375,10 @@ func (s *Server) RegisterRoutes() {
 			r.Get("/shifts/current", shiftHandler.GetCurrent)
 			r.Get("/shifts", shiftHandler.List)
 			r.Get("/shifts/{id}/summary", shiftHandler.GetSummary)
+
+			// Gateway payments
+			r.Post("/gateway/payments", posGatewayHandler.CreatePayment)
+			r.Get("/gateway/payments/{externalID}/status", posGatewayHandler.GetPaymentStatus)
 		})
 	})
 }

@@ -107,7 +107,7 @@ func (s *ShiftService) CloseShift(ctx context.Context, shiftID uuid.UUID, cashie
 		AND t.status = 'completed'
 		AND EXISTS (
 			SELECT 1 FROM jsonb_array_elements(t.payments) p
-			WHERE LOWER(p->>'type') = 'cash'
+			WHERE LOWER(COALESCE(p->>'methodType', p->>'type', p->>'method')) = 'cash'
 		)
 	`, shiftID).Scan(&expectedCash)
 	if err != nil {
@@ -266,14 +266,14 @@ func (s *ShiftService) GetShiftSummary(ctx context.Context, shiftID uuid.UUID) (
 
 	// Get payment breakdown
 	rows, err := q.Query(ctx, `
-		SELECT p.value->>'type' AS payment_type,
+		SELECT COALESCE(p.value->>'methodType', p.value->>'type', p.value->>'method') AS payment_type,
 		       COUNT(*) AS count,
 		       COALESCE(SUM((p.value->>'amount')::bigint), 0) AS amount
 		FROM shift_transactions st
 		JOIN transactions t ON st.transaction_id = t.id,
 		     jsonb_array_elements(t.payments) AS p(value)
 		WHERE st.shift_id = $1 AND t.status = 'completed'
-		GROUP BY p.value->>'type'
+		GROUP BY COALESCE(p.value->>'methodType', p.value->>'type', p.value->>'method')
 		ORDER BY amount DESC
 	`, shiftID)
 	if err != nil {

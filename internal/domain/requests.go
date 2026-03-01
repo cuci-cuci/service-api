@@ -197,3 +197,24 @@ type ResetPasswordRequest struct {
 	Token       string `json:"token" validate:"required"`
 	NewPassword string `json:"new_password" validate:"required,min=8"`
 }
+
+type UpsertGatewayConfigRequest struct {
+	SecretKey    string   `json:"secret_key" validate:"required"`
+	PublicKey    string   `json:"public_key"`
+	WebhookToken string  `json:"webhook_token"`
+	EnabledTypes []string `json:"enabled_types" validate:"required,dive,oneof=qris virtual_account ewallet"`
+	IsEnabled    bool     `json:"is_enabled"`
+}
+
+type UpdateGatewayEnabledRequest struct {
+	IsEnabled bool `json:"is_enabled"`
+}
+
+type CreateGatewayPaymentRequest struct {
+	TransactionID string `json:"transaction_id" validate:"required,uuid"`
+	PaymentItemID string `json:"payment_item_id" validate:"required,uuid"`
+	GatewayType   string `json:"gateway_type" validate:"required,oneof=qris virtual_account ewallet"`
+	Amount        int64  `json:"amount" validate:"required,gt=0"`
+	CustomerName  string `json:"customer_name"`
+	CustomerPhone string `json:"customer_phone"`
+}
