@@ -11,6 +11,7 @@ import (
 	"github.com/bangun-ekosistem/service-api/internal/middleware"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/response"
+	"github.com/bangun-ekosistem/service-api/internal/pkg/validation"
 	"github.com/bangun-ekosistem/service-api/internal/service"
 )
 
@@ -37,7 +38,7 @@ func (h *GatewayHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.validate.Struct(req); err != nil {
-		response.Error(w, apperror.Validation(err.Error()))
+		response.ValidationError(w, validation.Errors(err))
 		return
 	}
 

@@ -75,6 +75,11 @@ func (h *GatewayHandler) SetEnabled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.validate.Struct(req); err != nil {
+		response.ValidationError(w, validationErrors(err))
+		return
+	}
+
 	cfg, svcErr := h.svc.SetEnabled(r.Context(), tenantID, req.IsEnabled)
 	if svcErr != nil {
 		response.Error(w, svcErr)

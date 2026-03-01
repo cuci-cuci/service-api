@@ -171,7 +171,7 @@ type GatewayPaymentResponse struct {
 
 type GatewayPaymentStatusResponse struct {
 	ExternalID    string     `json:"external_id"`
-	GatewayStatus string    `json:"gateway_status"`
+	GatewayStatus string     `json:"gateway_status"`
 	PaidAt        *time.Time `json:"paid_at,omitempty"`
 	IsFinal       bool       `json:"is_final"`
 }

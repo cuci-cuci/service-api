@@ -134,7 +134,7 @@ func (s *Server) RegisterRoutes() {
 		r.Get("/track/{token}", trackingHandler.GetByToken)
 
 		// Public: Xendit webhook (no auth, uses x-callback-token header)
-		r.Post("/webhooks/xendit", webhookHandler.XenditCallback)
+		r.With(middleware.RateLimit(60, time.Minute)).Post("/webhooks/xendit", webhookHandler.XenditCallback)
 
 		// Admin routes (authenticated)
 		r.Route("/admin", func(r chi.Router) {

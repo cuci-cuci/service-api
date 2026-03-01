@@ -201,8 +201,8 @@ type ResetPasswordRequest struct {
 type UpsertGatewayConfigRequest struct {
 	SecretKey    string   `json:"secret_key" validate:"required"`
 	PublicKey    string   `json:"public_key"`
-	WebhookToken string  `json:"webhook_token"`
-	EnabledTypes []string `json:"enabled_types" validate:"required,dive,oneof=qris virtual_account ewallet"`
+	WebhookToken string   `json:"webhook_token"`
+	EnabledTypes []string `json:"enabled_types" validate:"omitempty,dive,oneof=qris virtual_account ewallet"`
 	IsEnabled    bool     `json:"is_enabled"`
 }
 
