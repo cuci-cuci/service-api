@@ -8,6 +8,7 @@ import (
 
 	"github.com/bangun-ekosistem/service-api/internal/domain"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
+	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/response"
 	"github.com/bangun-ekosistem/service-api/internal/service"
 )
@@ -86,4 +87,22 @@ func (h *GatewayHandler) SetEnabled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusOK, cfg)
+}
+
+func (h *GatewayHandler) ListPayments(w http.ResponseWriter, r *http.Request) {
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+
+	params := pagination.ParseFromRequest(r)
+	status := r.URL.Query().Get("status")
+
+	items, total, svcErr := h.svc.ListPayments(r.Context(), tenantID, status, params.PerPage, params.Offset())
+	if svcErr != nil {
+		response.Error(w, svcErr)
+		return
+	}
+	response.JSONWithMeta(w, http.StatusOK, items, params.ToMeta(total))
 }

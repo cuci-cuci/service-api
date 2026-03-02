@@ -339,6 +339,7 @@ func (s *Server) RegisterRoutes() {
 			r.Get("/gateway-config", ownerGatewayHandler.GetConfig)
 			r.Put("/gateway-config", ownerGatewayHandler.UpsertConfig)
 			r.Patch("/gateway-config/enabled", ownerGatewayHandler.SetEnabled)
+			r.Get("/gateway-payments", ownerGatewayHandler.ListPayments)
 
 			// Analytics
 			r.Get("/analytics/summary", ownerAnalyticsHandler.Summary)

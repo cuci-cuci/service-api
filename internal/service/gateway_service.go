@@ -308,6 +308,74 @@ func (s *GatewayService) GetPaymentStatus(ctx context.Context, tenantID uuid.UUI
 	return &resp, nil
 }
 
+// ListPayments returns a paginated list of gateway payments for a tenant.
+func (s *GatewayService) ListPayments(ctx context.Context, tenantID uuid.UUID, status string, limit, offset int) ([]domain.GatewayPaymentListItem, int, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	// Count total
+	countQuery := `SELECT COUNT(*) FROM transaction_gateway_payments WHERE tenant_id = $1`
+	args := []interface{}{tenantID}
+	argIdx := 2
+
+	if status != "" {
+		countQuery += fmt.Sprintf(` AND gateway_status = $%d`, argIdx)
+		args = append(args, status)
+		argIdx++
+	}
+
+	var total int
+	if err := q.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, apperror.Internal("failed to count gateway payments", err)
+	}
+
+	if total == 0 {
+		return []domain.GatewayPaymentListItem{}, 0, nil
+	}
+
+	// Fetch page
+	dataQuery := `
+		SELECT id, external_id, transaction_id, gateway_type, amount,
+		       gateway_status, paid_at, expires_at, created_at
+		FROM transaction_gateway_payments
+		WHERE tenant_id = $1`
+
+	dataArgs := []interface{}{tenantID}
+	dataArgIdx := 2
+
+	if status != "" {
+		dataQuery += fmt.Sprintf(` AND gateway_status = $%d`, dataArgIdx)
+		dataArgs = append(dataArgs, status)
+		dataArgIdx++
+	}
+
+	dataQuery += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, dataArgIdx, dataArgIdx+1)
+	dataArgs = append(dataArgs, limit, offset)
+
+	rows, err := q.Query(ctx, dataQuery, dataArgs...)
+	if err != nil {
+		return nil, 0, apperror.Internal("failed to list gateway payments", err)
+	}
+	defer rows.Close()
+
+	var items []domain.GatewayPaymentListItem
+	for rows.Next() {
+		var item domain.GatewayPaymentListItem
+		if err := rows.Scan(
+			&item.ID, &item.ExternalID, &item.TransactionID, &item.GatewayType,
+			&item.Amount, &item.GatewayStatus, &item.PaidAt, &item.ExpiresAt, &item.CreatedAt,
+		); err != nil {
+			return nil, 0, apperror.Internal("failed to scan gateway payment", err)
+		}
+		items = append(items, item)
+	}
+
+	if items == nil {
+		items = []domain.GatewayPaymentListItem{}
+	}
+
+	return items, total, nil
+}
+
 // ProcessWebhook validates and processes an inbound Xendit webhook.
 // This runs without RLS (public endpoint), so we use the pool directly.
 // Always returns nil (HTTP 200) to Xendit on success OR on non-auth errors

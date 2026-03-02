@@ -169,6 +169,18 @@ type GatewayPaymentResponse struct {
 	CreatedAt         time.Time  `json:"created_at"`
 }
 
+type GatewayPaymentListItem struct {
+	ID            uuid.UUID  `json:"id"`
+	ExternalID    string     `json:"external_id"`
+	TransactionID uuid.UUID  `json:"transaction_id"`
+	GatewayType   string     `json:"gateway_type"`
+	Amount        int64      `json:"amount"`
+	GatewayStatus string     `json:"gateway_status"`
+	PaidAt        *time.Time `json:"paid_at,omitempty"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+}
+
 type GatewayPaymentStatusResponse struct {
 	ExternalID    string     `json:"external_id"`
 	GatewayStatus string     `json:"gateway_status"`
