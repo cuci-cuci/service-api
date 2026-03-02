@@ -557,10 +557,10 @@ func (s *GatewayService) callXenditCreateInvoice(secretKey string, req xenditInv
 	body := map[string]interface{}{
 		"external_id":      req.ExternalID,
 		"amount":           req.Amount,
-		"currency":         "IDR",
+		"currency":         s.cfg.XenditCurrency,
 		"payment_methods":  req.PaymentMethods,
-		"description":      "LaundryPOS Payment",
-		"invoice_duration": 1800, // 30 minutes
+		"description":      s.cfg.XenditDescription,
+		"invoice_duration": s.cfg.XenditInvoiceDuration,
 	}
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
@@ -575,7 +575,7 @@ func (s *GatewayService) callXenditCreateInvoice(secretKey string, req xenditInv
 	// Xendit uses HTTP Basic Auth: base64(secretKey + ":")
 	httpReq.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(secretKey+":")))
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{Timeout: time.Duration(s.cfg.XenditHTTPTimeout) * time.Second}
 	httpResp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("send request: %w", err)

@@ -21,9 +21,13 @@ type Config struct {
 	MaxPerPage         int    `env:"MAX_PER_PAGE" envDefault:"100"`
 	DefaultMemberTier  string `env:"DEFAULT_MEMBER_TIER" envDefault:"bronze"`
 	FonnteAPIURL         string `env:"FONNTE_API_URL" envDefault:"https://api.fonnte.com/send"`
-	GatewayEncryptionKey string `env:"GATEWAY_ENCRYPTION_KEY"`
-	XenditWebhookToken   string `env:"XENDIT_WEBHOOK_TOKEN"`
-	XenditAPIURL         string `env:"XENDIT_API_URL" envDefault:"https://api.xendit.co"`
+	GatewayEncryptionKey  string `env:"GATEWAY_ENCRYPTION_KEY"`
+	XenditWebhookToken    string `env:"XENDIT_WEBHOOK_TOKEN"`
+	XenditAPIURL          string `env:"XENDIT_API_URL" envDefault:"https://api.xendit.co"`
+	XenditInvoiceDuration int    `env:"XENDIT_INVOICE_DURATION" envDefault:"1800"`
+	XenditHTTPTimeout     int    `env:"XENDIT_HTTP_TIMEOUT_SECS" envDefault:"15"`
+	XenditCurrency        string `env:"XENDIT_CURRENCY" envDefault:"IDR"`
+	XenditDescription     string `env:"XENDIT_DESCRIPTION" envDefault:"LaundryPOS Payment"`
 }
 
 func Load() (*Config, error) {
