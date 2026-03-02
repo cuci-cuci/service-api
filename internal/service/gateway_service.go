@@ -341,6 +341,14 @@ func (s *GatewayService) GetPaymentStatus(ctx context.Context, tenantID uuid.UUI
 
 // ListPayments returns a paginated list of gateway payments for a tenant.
 func (s *GatewayService) ListPayments(ctx context.Context, tenantID uuid.UUID, status string, limit, offset int) ([]domain.GatewayPaymentListItem, int, error) {
+	// Defensive pagination bounds
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
 	// Validate status filter
 	if status != "" {
 		validStatuses := map[string]bool{"PENDING": true, "ACTIVE": true, "PAID": true, "EXPIRED": true, "FAILED": true, "CANCELLED": true}
