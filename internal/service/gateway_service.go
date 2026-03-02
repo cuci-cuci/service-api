@@ -25,12 +25,19 @@ import (
 )
 
 type GatewayService struct {
-	db  *pgxpool.Pool
-	cfg *config.Config
+	db         *pgxpool.Pool
+	cfg        *config.Config
+	httpClient *http.Client
 }
 
 func NewGatewayService(db *pgxpool.Pool, cfg *config.Config) *GatewayService {
-	return &GatewayService{db: db, cfg: cfg}
+	return &GatewayService{
+		db:  db,
+		cfg: cfg,
+		httpClient: &http.Client{
+			Timeout: time.Duration(cfg.XenditHTTPTimeout) * time.Second,
+		},
+	}
 }
 
 // GetConfig returns the public gateway config for a tenant (no key material).
@@ -264,7 +271,8 @@ func (s *GatewayService) CreateGatewayPayment(ctx context.Context, tenantID uuid
 			return nil, apperror.Internal("failed to create payment with gateway", err)
 		}
 
-		// Update DB with Xendit response: set ACTIVE, store URL + ref + expiry
+		// Update DB with Xendit response: set ACTIVE, store URL + ref + expiry.
+		// Only update if still PENDING (webhook may have already set PAID).
 		err = q.QueryRow(ctx, `
 			UPDATE transaction_gateway_payments
 			SET gateway_status = 'ACTIVE',
@@ -273,7 +281,7 @@ func (s *GatewayService) CreateGatewayPayment(ctx context.Context, tenantID uuid
 			    expires_at = $3,
 			    gateway_response = $4,
 			    updated_at = $5
-			WHERE external_id = $6
+			WHERE external_id = $6 AND gateway_status = 'PENDING'
 			RETURNING id, external_id, gateway_status, gateway_type, amount,
 			          gateway_payment_url, expires_at, created_at
 		`, invoiceResp.ID, invoiceResp.InvoiceURL, invoiceResp.ExpiryDate,
@@ -283,9 +291,25 @@ func (s *GatewayService) CreateGatewayPayment(ctx context.Context, tenantID uuid
 			&resp.Amount, &resp.GatewayPaymentURL, &resp.ExpiresAt, &resp.CreatedAt,
 		)
 		if err != nil {
-			slog.Error("failed to update payment after xendit call",
-				"external_id", externalID, "error", err)
-			return nil, apperror.Internal("failed to update gateway payment", err)
+			if err == pgx.ErrNoRows {
+				// Webhook already updated status — re-read current state
+				err = q.QueryRow(ctx, `
+					SELECT id, external_id, gateway_status, gateway_type, amount,
+					       gateway_payment_url, expires_at, created_at
+					FROM transaction_gateway_payments
+					WHERE external_id = $1
+				`, externalID).Scan(
+					&resp.ID, &resp.ExternalID, &resp.GatewayStatus, &resp.GatewayType,
+					&resp.Amount, &resp.GatewayPaymentURL, &resp.ExpiresAt, &resp.CreatedAt,
+				)
+				if err != nil {
+					return nil, apperror.Internal("failed to re-read gateway payment", err)
+				}
+			} else {
+				slog.Error("failed to update payment after xendit call",
+					"external_id", externalID, "error", err)
+				return nil, apperror.Internal("failed to update gateway payment", err)
+			}
 		}
 	}
 
@@ -579,9 +603,9 @@ func (s *GatewayService) callXenditCreateInvoice(secretKey string, req xenditInv
 	httpReq.Header.Set("Content-Type", "application/json")
 	// Xendit uses HTTP Basic Auth: base64(secretKey + ":")
 	httpReq.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(secretKey+":")))
+	httpReq.Header.Set("Idempotency-Key", req.ExternalID)
 
-	client := &http.Client{Timeout: time.Duration(s.cfg.XenditHTTPTimeout) * time.Second}
-	httpResp, err := client.Do(httpReq)
+	httpResp, err := s.httpClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("send request: %w", err)
 	}
