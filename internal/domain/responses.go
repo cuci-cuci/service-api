@@ -147,6 +147,47 @@ type TrackingStatusEntry struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+type GatewayConfigResponse struct {
+	ID           uuid.UUID `json:"id"`
+	Gateway      string    `json:"gateway"`
+	IsEnabled    bool      `json:"is_enabled"`
+	HasSecretKey bool      `json:"has_secret_key"`
+	PublicKey    *string   `json:"public_key,omitempty"`
+	EnabledTypes []string  `json:"enabled_types"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type GatewayPaymentResponse struct {
+	ID                uuid.UUID  `json:"id"`
+	ExternalID        string     `json:"external_id"`
+	GatewayStatus     string     `json:"gateway_status"`
+	GatewayType       string     `json:"gateway_type"`
+	Amount            int64      `json:"amount"`
+	GatewayPaymentURL *string    `json:"gateway_payment_url,omitempty"`
+	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+}
+
+type GatewayPaymentListItem struct {
+	ID            uuid.UUID  `json:"id"`
+	ExternalID    string     `json:"external_id"`
+	TransactionID uuid.UUID  `json:"transaction_id"`
+	GatewayType   string     `json:"gateway_type"`
+	Amount        int64      `json:"amount"`
+	GatewayStatus string     `json:"gateway_status"`
+	PaidAt        *time.Time `json:"paid_at,omitempty"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+}
+
+type GatewayPaymentStatusResponse struct {
+	ExternalID    string     `json:"external_id"`
+	GatewayStatus string     `json:"gateway_status"`
+	PaidAt        *time.Time `json:"paid_at,omitempty"`
+	IsFinal       bool       `json:"is_final"`
+}
+
 func ToUserResponse(u User) UserResponse {
 	return UserResponse{
 		ID:        u.ID,

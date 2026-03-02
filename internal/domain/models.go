@@ -195,6 +195,40 @@ type OrderStatusLog struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+type PaymentGatewayConfig struct {
+	ID                    uuid.UUID `json:"id"`
+	TenantID              uuid.UUID `json:"tenant_id"`
+	Gateway               string    `json:"gateway"`
+	IsEnabled             bool      `json:"is_enabled"`
+	SecretKeyEncrypted    string    `json:"-"`
+	PublicKey             *string   `json:"public_key,omitempty"`
+	WebhookTokenEncrypted string    `json:"-"`
+	EnabledTypes          []string  `json:"enabled_types"`
+	KeyVersion            int       `json:"key_version"`
+	CreatedAt             time.Time `json:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at"`
+}
+
+type TransactionGatewayPayment struct {
+	ID                uuid.UUID       `json:"id"`
+	TenantID          uuid.UUID       `json:"tenant_id"`
+	TransactionID     uuid.UUID       `json:"transaction_id"`
+	PaymentItemID     *uuid.UUID      `json:"payment_item_id,omitempty"`
+	Gateway           string          `json:"gateway"`
+	GatewayType       string          `json:"gateway_type"`
+	ExternalID        string          `json:"external_id"`
+	GatewayRefID      *string         `json:"gateway_ref_id,omitempty"`
+	Amount            int64           `json:"amount"`
+	GatewayStatus     string          `json:"gateway_status"`
+	GatewayPaymentURL *string         `json:"gateway_payment_url,omitempty"`
+	GatewayResponse   json.RawMessage `json:"-"`
+	WebhookPayload    json.RawMessage `json:"-"`
+	ExpiresAt         *time.Time      `json:"expires_at,omitempty"`
+	PaidAt            *time.Time      `json:"paid_at,omitempty"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
+}
+
 type Shift struct {
 	ID             uuid.UUID  `json:"id"`
 	TenantID       uuid.UUID  `json:"tenant_id"`
