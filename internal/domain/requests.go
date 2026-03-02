@@ -214,7 +214,7 @@ type CreateGatewayPaymentRequest struct {
 	TransactionID string `json:"transaction_id" validate:"required,uuid"`
 	PaymentItemID string `json:"payment_item_id" validate:"required,uuid"`
 	GatewayType   string `json:"gateway_type" validate:"required,oneof=qris virtual_account ewallet"`
-	Amount        int64  `json:"amount" validate:"required,gt=0"`
+	Amount        int64  `json:"amount" validate:"required,gte=1000,lte=100000000"`
 	CustomerName  string `json:"customer_name"`
 	CustomerPhone string `json:"customer_phone"`
 }

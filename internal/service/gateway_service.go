@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -66,9 +67,15 @@ func (s *GatewayService) UpsertConfig(ctx context.Context, tenantID uuid.UUID, r
 		return nil, apperror.Internal("gateway encryption key not configured", nil)
 	}
 
+	// Validate secret key format
+	trimmedKey := strings.TrimSpace(req.SecretKey)
+	if !strings.HasPrefix(trimmedKey, "xnd_") {
+		return nil, apperror.Validation("secret key must start with 'xnd_'")
+	}
+
 	q := middleware.GetQuerier(ctx, s.db)
 
-	encryptedSecret, err := encrypt.Encrypt(s.cfg.GatewayEncryptionKey, req.SecretKey)
+	encryptedSecret, err := encrypt.Encrypt(s.cfg.GatewayEncryptionKey, trimmedKey)
 	if err != nil {
 		return nil, apperror.Internal("failed to encrypt gateway secret", err)
 	}
@@ -310,6 +317,14 @@ func (s *GatewayService) GetPaymentStatus(ctx context.Context, tenantID uuid.UUI
 
 // ListPayments returns a paginated list of gateway payments for a tenant.
 func (s *GatewayService) ListPayments(ctx context.Context, tenantID uuid.UUID, status string, limit, offset int) ([]domain.GatewayPaymentListItem, int, error) {
+	// Validate status filter
+	if status != "" {
+		validStatuses := map[string]bool{"PENDING": true, "ACTIVE": true, "PAID": true, "EXPIRED": true, "FAILED": true, "CANCELLED": true}
+		if !validStatuses[status] {
+			return nil, 0, apperror.Validation("invalid status filter")
+		}
+	}
+
 	q := middleware.GetQuerier(ctx, s.db)
 
 	// Count total
@@ -386,7 +401,7 @@ func (s *GatewayService) ProcessWebhook(ctx context.Context, callbackToken strin
 		slog.Error("xendit webhook token not configured, rejecting webhook")
 		return apperror.Unauthorized("webhook not configured")
 	}
-	if callbackToken != s.cfg.XenditWebhookToken {
+	if subtle.ConstantTimeCompare([]byte(callbackToken), []byte(s.cfg.XenditWebhookToken)) != 1 {
 		return apperror.Unauthorized("invalid callback token")
 	}
 
@@ -411,6 +426,12 @@ func (s *GatewayService) ProcessWebhook(ctx context.Context, callbackToken strin
 	if resolvedExternalID == "" {
 		slog.Warn("webhook missing external_id and reference_id", "payload_size", len(payload))
 		return nil // Return nil = HTTP 200
+	}
+
+	// Validate status field
+	if webhookData.Status == "" {
+		slog.Warn("webhook missing status field", "external_id", resolvedExternalID)
+		return nil
 	}
 
 	// Only process our own payments (prefixed with "lpos-")
@@ -464,7 +485,7 @@ func (s *GatewayService) ProcessWebhook(ctx context.Context, callbackToken strin
 		SET gateway_status = $1, paid_at = COALESCE($2, paid_at),
 		    webhook_payload = $3, updated_at = $4
 		WHERE external_id = $5
-		  AND gateway_status NOT IN ('PAID', 'CANCELLED')
+		  AND gateway_status NOT IN ('PAID', 'EXPIRED', 'FAILED', 'CANCELLED')
 	`, gatewayStatus, paidAt, payload, now, resolvedExternalID)
 	if err != nil {
 		slog.Error("webhook: failed to update gateway payment",
