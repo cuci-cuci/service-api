@@ -457,25 +457,29 @@ func (s *GatewayService) ProcessWebhook(ctx context.Context, callbackToken strin
 	// Use pool directly (no RLS context in webhook path).
 	conn, err := s.db.Acquire(ctx)
 	if err != nil {
-		slog.Error("webhook: failed to acquire connection", "error", err)
+		slog.Error("webhook: failed to acquire connection",
+			"external_id", resolvedExternalID, "error", err)
 		return nil // Return nil = HTTP 200, will retry via Xendit
 	}
 	defer conn.Release()
 
 	tx, err := conn.Begin(ctx)
 	if err != nil {
-		slog.Error("webhook: failed to begin transaction", "error", err)
+		slog.Error("webhook: failed to begin transaction",
+			"external_id", resolvedExternalID, "error", err)
 		return nil
 	}
 	defer func() {
 		if err := tx.Rollback(ctx); err != nil && err != pgx.ErrTxClosed {
-			slog.Error("webhook: failed to rollback tx", "error", err)
+			slog.Error("webhook: failed to rollback tx",
+				"external_id", resolvedExternalID, "error", err)
 		}
 	}()
 
 	// Set superadmin role to bypass RLS
 	if _, err := tx.Exec(ctx, `SET LOCAL "app.current_role" = 'superadmin'`); err != nil {
-		slog.Error("webhook: failed to set session role", "error", err)
+		slog.Error("webhook: failed to set session role",
+			"external_id", resolvedExternalID, "error", err)
 		return nil
 	}
 
@@ -502,7 +506,8 @@ func (s *GatewayService) ProcessWebhook(ctx context.Context, callbackToken strin
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		slog.Error("webhook: failed to commit", "error", err)
+		slog.Error("webhook: failed to commit",
+			"external_id", resolvedExternalID, "error", err)
 		return nil
 	}
 
@@ -582,15 +587,27 @@ func (s *GatewayService) callXenditCreateInvoice(secretKey string, req xenditInv
 	}
 	defer httpResp.Body.Close()
 
-	respBody, err := io.ReadAll(httpResp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(httpResp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 
 	if httpResp.StatusCode >= 400 {
+		var xenditErr struct {
+			ErrorCode string `json:"error_code"`
+			Message   string `json:"message"`
+		}
+		if jsonErr := json.Unmarshal(respBody, &xenditErr); jsonErr == nil && xenditErr.ErrorCode != "" {
+			slog.Error("xendit API error",
+				"status", httpResp.StatusCode,
+				"error_code", xenditErr.ErrorCode,
+				"message", xenditErr.Message,
+				"external_id", req.ExternalID)
+			return nil, fmt.Errorf("xendit: %s - %s", xenditErr.ErrorCode, xenditErr.Message)
+		}
 		slog.Error("xendit API error",
 			"status", httpResp.StatusCode,
-			"body", string(respBody))
+			"external_id", req.ExternalID)
 		return nil, fmt.Errorf("xendit API returned %d", httpResp.StatusCode)
 	}
 
