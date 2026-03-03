@@ -473,21 +473,32 @@ func (s *GatewayService) ProcessWebhook(ctx context.Context, callbackToken strin
 		return apperror.Unauthorized("invalid callback token")
 	}
 
-	// Parse the webhook payload — Xendit uses different field names:
-	// Invoice: external_id, QR: reference_id, VA: external_id
+	// Parse the webhook payload — Xendit uses different formats:
+	// Invoice: { external_id, status, paid_at }
+	// QR Code: { event: "qr.payment", status: "COMPLETED", qr_code: { external_id } }
 	var webhookData struct {
+		Event       string `json:"event"`
 		ExternalID  string `json:"external_id"`
 		ReferenceID string `json:"reference_id"`
 		Status      string `json:"status"`
 		PaidAt      string `json:"paid_at"`
+		QRCode      *struct {
+			ExternalID string `json:"external_id"`
+		} `json:"qr_code"`
 	}
 	if err := json.Unmarshal(payload, &webhookData); err != nil {
 		slog.Error("failed to parse webhook payload", "error", err)
 		return nil // Return nil = HTTP 200 to prevent Xendit retries
 	}
 
-	// Use external_id, fall back to reference_id (QR Code webhooks)
+	// Resolve external_id from the appropriate location:
+	// 1. QR Code webhook: qr_code.external_id
+	// 2. Invoice webhook: top-level external_id
+	// 3. Fallback: reference_id
 	resolvedExternalID := webhookData.ExternalID
+	if webhookData.QRCode != nil && webhookData.QRCode.ExternalID != "" {
+		resolvedExternalID = webhookData.QRCode.ExternalID
+	}
 	if resolvedExternalID == "" {
 		resolvedExternalID = webhookData.ReferenceID
 	}
