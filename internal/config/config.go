@@ -28,6 +28,7 @@ type Config struct {
 	XenditHTTPTimeout     int    `env:"XENDIT_HTTP_TIMEOUT_SECS" envDefault:"15"`
 	XenditCurrency        string `env:"XENDIT_CURRENCY" envDefault:"IDR"`
 	XenditDescription     string `env:"XENDIT_DESCRIPTION" envDefault:"LaundryPOS Payment"`
+	XenditQRCallbackURL   string `env:"XENDIT_QR_CALLBACK_URL"` // Required for QR Codes API; set to your webhook URL
 }
 
 func Load() (*Config, error) {

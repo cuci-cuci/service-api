@@ -13,6 +13,7 @@ services:
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-*}"
       XENDIT_WEBHOOK_TOKEN: "${XENDIT_WEBHOOK_TOKEN}"
       GATEWAY_ENCRYPTION_KEY: "${GATEWAY_ENCRYPTION_KEY}"
+      XENDIT_QR_CALLBACK_URL: "${XENDIT_QR_CALLBACK_URL}"
     networks:
       - dokploy-network
     restart: unless-stopped

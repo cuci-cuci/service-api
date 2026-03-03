@@ -243,64 +243,100 @@ func (s *GatewayService) CreateGatewayPayment(ctx context.Context, tenantID uuid
 			END,
 			updated_at = $7
 		RETURNING id, external_id, gateway_status, gateway_type, amount,
-		          gateway_payment_url, expires_at, created_at
+		          gateway_payment_url, qr_string, expires_at, created_at
 	`, tenantID, txID, paymentItemID, req.GatewayType, externalID, req.Amount, now,
 	).Scan(
 		&resp.ID, &resp.ExternalID, &resp.GatewayStatus, &resp.GatewayType,
-		&resp.Amount, &resp.GatewayPaymentURL, &resp.ExpiresAt, &resp.CreatedAt,
+		&resp.Amount, &resp.GatewayPaymentURL, &resp.QRString, &resp.ExpiresAt, &resp.CreatedAt,
 	)
 	if err != nil {
 		return nil, apperror.Internal("failed to create gateway payment", err)
 	}
 
-	// If status is PENDING (new or reset from EXPIRED/FAILED), call Xendit to create invoice.
+	// If status is PENDING (new or reset from EXPIRED/FAILED), call Xendit API.
+	// Use QR Codes API for QRIS (returns qr_string), Invoice API for others.
 	if resp.GatewayStatus == "PENDING" {
 		secretKey, err := s.getDecryptedSecretKey(ctx, tenantID)
 		if err != nil {
 			return nil, err
 		}
 
-		invoiceResp, err := s.callXenditCreateInvoice(secretKey, xenditInvoiceRequest{
-			ExternalID:     externalID,
-			Amount:         req.Amount,
-			PaymentMethods: mapGatewayTypeToPaymentMethods(req.GatewayType),
-		})
-		if err != nil {
-			slog.Error("xendit create invoice failed",
-				"external_id", externalID, "error", err)
-			return nil, apperror.Internal("failed to create payment with gateway", err)
+		var gatewayRefID string
+		var gatewayPaymentURL *string
+		var qrString *string
+		var expiresAt *time.Time
+		var rawJSON []byte
+
+		if req.GatewayType == "qris" {
+			// Use QR Codes API for QRIS — returns qr_string for direct QR rendering
+			if s.cfg.XenditQRCallbackURL == "" {
+				return nil, apperror.Internal("XENDIT_QR_CALLBACK_URL not configured", nil)
+			}
+			qrResp, err := s.callXenditCreateQRCode(secretKey, xenditQRCodeRequest{
+				ExternalID:  externalID,
+				Amount:      req.Amount,
+				CallbackURL: s.cfg.XenditQRCallbackURL,
+			})
+			if err != nil {
+				slog.Error("xendit create QR code failed",
+					"external_id", externalID, "error", err)
+				return nil, apperror.Internal("failed to create payment with gateway", err)
+			}
+			gatewayRefID = qrResp.ID
+			qrString = &qrResp.QRString
+			rawJSON = qrResp.RawJSON
+			// QR Codes API doesn't return expiry; use configured invoice duration
+			expiry := time.Now().Add(time.Duration(s.cfg.XenditInvoiceDuration) * time.Second)
+			expiresAt = &expiry
+		} else {
+			// Use Invoice API for bank_transfer, ewallet
+			invoiceResp, err := s.callXenditCreateInvoice(secretKey, xenditInvoiceRequest{
+				ExternalID:     externalID,
+				Amount:         req.Amount,
+				PaymentMethods: mapGatewayTypeToPaymentMethods(req.GatewayType),
+			})
+			if err != nil {
+				slog.Error("xendit create invoice failed",
+					"external_id", externalID, "error", err)
+				return nil, apperror.Internal("failed to create payment with gateway", err)
+			}
+			gatewayRefID = invoiceResp.ID
+			gatewayPaymentURL = &invoiceResp.InvoiceURL
+			expiresAt = &invoiceResp.ExpiryDate
+			rawJSON = invoiceResp.RawJSON
 		}
 
-		// Update DB with Xendit response: set ACTIVE, store URL + ref + expiry.
+		// Update DB with Xendit response: set ACTIVE, store URL/QR + ref + expiry.
 		// Only update if still PENDING (webhook may have already set PAID).
 		err = q.QueryRow(ctx, `
 			UPDATE transaction_gateway_payments
 			SET gateway_status = 'ACTIVE',
 			    gateway_ref_id = $1,
 			    gateway_payment_url = $2,
-			    expires_at = $3,
-			    gateway_response = $4,
-			    updated_at = $5
-			WHERE external_id = $6 AND gateway_status = 'PENDING'
+			    qr_string = $3,
+			    expires_at = $4,
+			    gateway_response = $5,
+			    updated_at = $6
+			WHERE external_id = $7 AND gateway_status = 'PENDING'
 			RETURNING id, external_id, gateway_status, gateway_type, amount,
-			          gateway_payment_url, expires_at, created_at
-		`, invoiceResp.ID, invoiceResp.InvoiceURL, invoiceResp.ExpiryDate,
-			invoiceResp.RawJSON, time.Now(), externalID,
+			          gateway_payment_url, qr_string, expires_at, created_at
+		`, gatewayRefID, gatewayPaymentURL, qrString, expiresAt,
+			rawJSON, time.Now(), externalID,
 		).Scan(
 			&resp.ID, &resp.ExternalID, &resp.GatewayStatus, &resp.GatewayType,
-			&resp.Amount, &resp.GatewayPaymentURL, &resp.ExpiresAt, &resp.CreatedAt,
+			&resp.Amount, &resp.GatewayPaymentURL, &resp.QRString, &resp.ExpiresAt, &resp.CreatedAt,
 		)
 		if err != nil {
 			if err == pgx.ErrNoRows {
 				// Webhook already updated status — re-read current state
 				err = q.QueryRow(ctx, `
 					SELECT id, external_id, gateway_status, gateway_type, amount,
-					       gateway_payment_url, expires_at, created_at
+					       gateway_payment_url, qr_string, expires_at, created_at
 					FROM transaction_gateway_payments
 					WHERE external_id = $1
 				`, externalID).Scan(
 					&resp.ID, &resp.ExternalID, &resp.GatewayStatus, &resp.GatewayType,
-					&resp.Amount, &resp.GatewayPaymentURL, &resp.ExpiresAt, &resp.CreatedAt,
+					&resp.Amount, &resp.GatewayPaymentURL, &resp.QRString, &resp.ExpiresAt, &resp.CreatedAt,
 				)
 				if err != nil {
 					return nil, apperror.Internal("failed to re-read gateway payment", err)
@@ -644,6 +680,77 @@ func (s *GatewayService) callXenditCreateInvoice(secretKey string, req xenditInv
 	}
 
 	var result xenditInvoiceResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	result.RawJSON = respBody
+
+	return &result, nil
+}
+
+type xenditQRCodeRequest struct {
+	ExternalID  string
+	Amount      int64
+	CallbackURL string
+}
+
+type xenditQRCodeResponse struct {
+	ID       string `json:"id"`
+	QRString string `json:"qr_string"`
+	Status   string `json:"status"`
+	RawJSON  []byte
+}
+
+// callXenditCreateQRCode calls POST /qr_codes on the Xendit API.
+// Returns a qr_string that can be rendered directly as a QRIS QR code.
+func (s *GatewayService) callXenditCreateQRCode(secretKey string, req xenditQRCodeRequest) (*xenditQRCodeResponse, error) {
+	body := map[string]interface{}{
+		"external_id":  req.ExternalID,
+		"type":         "DYNAMIC",
+		"callback_url": req.CallbackURL,
+		"amount":       req.Amount,
+	}
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequest("POST", s.cfg.XenditAPIURL+"/qr_codes", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(secretKey+":")))
+	httpReq.Header.Set("Idempotency-Key", req.ExternalID)
+
+	httpResp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(httpResp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if httpResp.StatusCode >= 400 {
+		var xenditErr struct {
+			ErrorCode string `json:"error_code"`
+			Message   string `json:"message"`
+		}
+		if jsonErr := json.Unmarshal(respBody, &xenditErr); jsonErr == nil && xenditErr.ErrorCode != "" {
+			slog.Error("xendit QR API error",
+				"status", httpResp.StatusCode,
+				"error_code", xenditErr.ErrorCode,
+				"message", xenditErr.Message,
+				"external_id", req.ExternalID)
+			return nil, fmt.Errorf("xendit: %s - %s", xenditErr.ErrorCode, xenditErr.Message)
+		}
+		return nil, fmt.Errorf("xendit QR API returned %d", httpResp.StatusCode)
+	}
+
+	var result xenditQRCodeResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
