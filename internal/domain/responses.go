@@ -165,6 +165,7 @@ type GatewayPaymentResponse struct {
 	GatewayType       string     `json:"gateway_type"`
 	Amount            int64      `json:"amount"`
 	GatewayPaymentURL *string    `json:"gateway_payment_url,omitempty"`
+	QRString          *string    `json:"qr_string,omitempty"`
 	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
 	CreatedAt         time.Time  `json:"created_at"`
 }
