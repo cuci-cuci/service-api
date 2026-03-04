@@ -304,6 +304,19 @@ func (s *GatewayService) CreateGatewayPayment(ctx context.Context, tenantID uuid
 			gatewayPaymentURL = &invoiceResp.InvoiceURL
 			expiresAt = &invoiceResp.ExpiryDate
 			rawJSON = invoiceResp.RawJSON
+
+			// Parse VA details from Xendit invoice response for inline display
+			if len(invoiceResp.AvailableBanks) > 0 {
+				for _, bank := range invoiceResp.AvailableBanks {
+					if bank.BankAccountNumber != "" {
+						resp.VirtualAccounts = append(resp.VirtualAccounts, domain.VirtualAccountDetail{
+							BankCode:      bank.BankCode,
+							AccountNumber: bank.BankAccountNumber,
+							BankName:      bankCodeToName(bank.BankCode),
+						})
+					}
+				}
+			}
 		}
 
 		// Update DB with Xendit response: set ACTIVE, store URL/QR + ref + expiry.
@@ -629,11 +642,19 @@ type xenditInvoiceRequest struct {
 }
 
 type xenditInvoiceResponse struct {
-	ID         string    `json:"id"`
-	InvoiceURL string    `json:"invoice_url"`
-	Status     string    `json:"status"`
-	ExpiryDate time.Time `json:"expiry_date"`
-	RawJSON    []byte    // Store the full response for auditing
+	ID             string                    `json:"id"`
+	InvoiceURL     string                    `json:"invoice_url"`
+	Status         string                    `json:"status"`
+	ExpiryDate     time.Time                 `json:"expiry_date"`
+	AvailableBanks []xenditAvailableBank     `json:"available_banks"`
+	RawJSON        []byte                    // Store the full response for auditing
+}
+
+type xenditAvailableBank struct {
+	BankCode          string `json:"bank_code"`
+	CollectionType    string `json:"collection_type"`
+	BankAccountNumber string `json:"bank_account_number"`
+	AccountHolderName string `json:"account_holder_name"`
 }
 
 // callXenditCreateInvoice calls POST /v2/invoices on the Xendit API.
@@ -808,6 +829,23 @@ func isFinalStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+func bankCodeToName(code string) string {
+	names := map[string]string{
+		"BCA":     "Bank BCA",
+		"BNI":     "Bank BNI",
+		"BRI":     "Bank BRI",
+		"MANDIRI": "Bank Mandiri",
+		"PERMATA": "Bank Permata",
+		"BSI":     "Bank BSI",
+		"CIMB":    "Bank CIMB Niaga",
+		"SAHABAT_SAMPOERNA": "Bank Sahabat Sampoerna",
+	}
+	if name, ok := names[code]; ok {
+		return name
+	}
+	return code
 }
 
 func mapXenditStatus(xenditStatus string) string {
