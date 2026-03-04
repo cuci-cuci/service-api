@@ -158,16 +158,23 @@ type GatewayConfigResponse struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+type VirtualAccountDetail struct {
+	BankCode      string `json:"bank_code"`
+	AccountNumber string `json:"account_number"`
+	BankName      string `json:"bank_name"`
+}
+
 type GatewayPaymentResponse struct {
-	ID                uuid.UUID  `json:"id"`
-	ExternalID        string     `json:"external_id"`
-	GatewayStatus     string     `json:"gateway_status"`
-	GatewayType       string     `json:"gateway_type"`
-	Amount            int64      `json:"amount"`
-	GatewayPaymentURL *string    `json:"gateway_payment_url,omitempty"`
-	QRString          *string    `json:"qr_string,omitempty"`
-	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
+	ID                uuid.UUID              `json:"id"`
+	ExternalID        string                 `json:"external_id"`
+	GatewayStatus     string                 `json:"gateway_status"`
+	GatewayType       string                 `json:"gateway_type"`
+	Amount            int64                  `json:"amount"`
+	GatewayPaymentURL *string                `json:"gateway_payment_url,omitempty"`
+	QRString          *string                `json:"qr_string,omitempty"`
+	VirtualAccounts   []VirtualAccountDetail `json:"virtual_accounts,omitempty"`
+	ExpiresAt         *time.Time             `json:"expires_at,omitempty"`
+	CreatedAt         time.Time              `json:"created_at"`
 }
 
 type GatewayPaymentListItem struct {
