@@ -12,11 +12,12 @@ import (
 )
 
 type Scheduler struct {
-	notifSvc *service.NotificationService
+	notifSvc     *service.NotificationService
+	inventorySvc *service.InventoryService
 }
 
-func New(notifSvc *service.NotificationService) *Scheduler {
-	return &Scheduler{notifSvc: notifSvc}
+func New(notifSvc *service.NotificationService, inventorySvc *service.InventoryService) *Scheduler {
+	return &Scheduler{notifSvc: notifSvc, inventorySvc: inventorySvc}
 }
 
 func (s *Scheduler) Start(ctx context.Context) {
@@ -77,6 +78,35 @@ func (s *Scheduler) checkAndSendSummaries(ctx context.Context, now time.Time) {
 			} else {
 				slog.Info("scheduler: daily summary sent", "tenant_id", tenantID)
 			}
+
+			// Also check low stock and send alert alongside the daily summary
+			if s.inventorySvc != nil {
+				s.sendLowStockAlert(sendCtx, tenantID)
+			}
 		}(ns.TenantID, *ns.OwnerPhone, *ns.FonnteAPIToken)
 	}
+}
+
+// sendLowStockAlert checks for low stock items and sends a WhatsApp alert.
+func (s *Scheduler) sendLowStockAlert(ctx context.Context, tenantID uuid.UUID) {
+	alerts, err := s.inventorySvc.GetLowStockAlerts(ctx, tenantID)
+	if err != nil {
+		slog.Warn("scheduler: failed to get low stock alerts", "tenant_id", tenantID, "error", err)
+		return
+	}
+	if len(alerts) == 0 {
+		return
+	}
+
+	var items []service.LowStockAlertItem
+	for _, a := range alerts {
+		items = append(items, service.LowStockAlertItem{
+			Name:         a.Name,
+			CurrentStock: a.CurrentStock,
+			Unit:         a.Unit,
+			MinStock:     a.MinStock,
+		})
+	}
+	s.notifSvc.SendLowStockAlert(ctx, tenantID, items)
+	slog.Info("scheduler: low stock alert sent", "tenant_id", tenantID, "items", len(items))
 }

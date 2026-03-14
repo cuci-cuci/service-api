@@ -322,6 +322,46 @@ func (s *NotificationService) sendFonnte(apiToken, phone, message string) error 
 	return nil
 }
 
+// SendLowStockAlert sends a WhatsApp notification to the tenant owner about low stock items.
+// This is fire-and-forget — errors are logged but don't block the caller.
+func (s *NotificationService) SendLowStockAlert(ctx context.Context, tenantID uuid.UUID, lowStockItems []LowStockAlertItem) {
+	if len(lowStockItems) == 0 {
+		return
+	}
+
+	settings, err := s.GetSettings(ctx, tenantID)
+	if err != nil || !settings.WhatsAppEnabled || settings.FonnteAPIToken == nil || *settings.FonnteAPIToken == "" {
+		return
+	}
+	if settings.OwnerPhone == nil || *settings.OwnerPhone == "" {
+		return
+	}
+
+	msg := "⚠️ *Peringatan Stok Rendah*\n\n"
+	msg += "Beberapa bahan baku sudah di bawah batas minimum:\n\n"
+	for _, item := range lowStockItems {
+		msg += fmt.Sprintf("• *%s*: %.1f %s (min: %.1f)\n", item.Name, item.CurrentStock, item.Unit, item.MinStock)
+	}
+	msg += "\nSegera lakukan restock untuk menghindari kehabisan bahan. 📦"
+
+	go func() {
+		if err := s.sendFonnte(*settings.FonnteAPIToken, *settings.OwnerPhone, msg); err != nil {
+			slog.Error("failed to send low stock alert",
+				"error", err, "tenant_id", tenantID, "items", len(lowStockItems))
+		} else {
+			slog.Info("low stock alert sent", "tenant_id", tenantID, "items", len(lowStockItems))
+		}
+	}()
+}
+
+// LowStockAlertItem is a simplified struct for low stock notification.
+type LowStockAlertItem struct {
+	Name         string
+	CurrentStock float64
+	Unit         string
+	MinStock     float64
+}
+
 type UpdateNotificationSettingsRequest struct {
 	WhatsAppEnabled     bool    `json:"whatsapp_enabled"`
 	FonnteAPIToken      *string `json:"fonnte_api_token"`

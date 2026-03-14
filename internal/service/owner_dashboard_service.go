@@ -47,6 +47,18 @@ type CustomerInsights struct {
 	TotalUnique        int `json:"total_unique"`
 }
 
+type DateRangeSummary struct {
+	Revenue          int64   `json:"revenue"`
+	Transactions     int     `json:"transactions"`
+	Expenses         int64   `json:"expenses"`
+	Profit           int64   `json:"profit"`
+	PrevRevenue      int64   `json:"prev_revenue"`
+	PrevTransactions int     `json:"prev_transactions"`
+	PrevExpenses     int64   `json:"prev_expenses"`
+	PrevProfit       int64   `json:"prev_profit"`
+	RevenueGrowthPct float64 `json:"revenue_growth_pct"`
+}
+
 type DashboardGoal struct {
 	ID          uuid.UUID `json:"id"`
 	GoalType    string    `json:"goal_type"`
@@ -287,4 +299,110 @@ func (s *OwnerDashboardService) UpsertGoal(ctx context.Context, tenantID uuid.UU
 	}
 
 	return nil
+}
+
+// GetSummaryByDateRange returns revenue, transactions, expenses and profit for
+// a given date range plus the equivalent "previous period" of the same
+// duration immediately before startDate, enabling period-over-period comparison.
+func (s *OwnerDashboardService) GetSummaryByDateRange(ctx context.Context, tenantID uuid.UUID, startDate, endDate string, outletID *uuid.UUID) (*DateRangeSummary, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	start, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		return nil, apperror.Validation("invalid start date format, use YYYY-MM-DD")
+	}
+	end, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		return nil, apperror.Validation("invalid end date format, use YYYY-MM-DD")
+	}
+	if end.Before(start) {
+		return nil, apperror.Validation("end date must be on or after start date")
+	}
+
+	// The "end" in the query is exclusive (< endDate + 1 day).
+	endExclusive := end.AddDate(0, 0, 1).Format("2006-01-02")
+
+	// Previous period: same duration, immediately before startDate.
+	duration := end.Sub(start) + 24*time.Hour // inclusive range
+	prevStart := start.Add(-duration).Format("2006-01-02")
+	prevEnd := startDate // exclusive
+
+	summary := &DateRangeSummary{}
+
+	// --- Current period ---
+	txArgs := []any{tenantID, startDate, endExclusive}
+	txFilter := ""
+	if outletID != nil {
+		txFilter = " AND outlet_id = $4"
+		txArgs = append(txArgs, *outletID)
+	}
+
+	err = q.QueryRow(ctx, `
+		SELECT COALESCE(SUM(total_amount), 0), COUNT(*)
+		FROM transactions
+		WHERE tenant_id = $1 AND status = 'completed'
+			AND created_at >= $2::date AND created_at < $3::date`+txFilter+`
+	`, txArgs...).Scan(&summary.Revenue, &summary.Transactions)
+	if err != nil {
+		return nil, apperror.Internal("failed to get range revenue", err)
+	}
+
+	expArgs := []any{tenantID, startDate, endExclusive}
+	expFilter := ""
+	if outletID != nil {
+		expFilter = " AND outlet_id = $4"
+		expArgs = append(expArgs, *outletID)
+	}
+	err = q.QueryRow(ctx, `
+		SELECT COALESCE(SUM(amount), 0)
+		FROM expenses
+		WHERE tenant_id = $1
+			AND expense_date >= $2 AND expense_date < $3`+expFilter+`
+	`, expArgs...).Scan(&summary.Expenses)
+	if err != nil {
+		summary.Expenses = 0
+	}
+	summary.Profit = summary.Revenue - summary.Expenses
+
+	// --- Previous period ---
+	prevTxArgs := []any{tenantID, prevStart, prevEnd}
+	prevTxFilter := ""
+	if outletID != nil {
+		prevTxFilter = " AND outlet_id = $4"
+		prevTxArgs = append(prevTxArgs, *outletID)
+	}
+
+	err = q.QueryRow(ctx, `
+		SELECT COALESCE(SUM(total_amount), 0), COUNT(*)
+		FROM transactions
+		WHERE tenant_id = $1 AND status = 'completed'
+			AND created_at >= $2::date AND created_at < $3::date`+prevTxFilter+`
+	`, prevTxArgs...).Scan(&summary.PrevRevenue, &summary.PrevTransactions)
+	if err != nil {
+		return nil, apperror.Internal("failed to get prev range revenue", err)
+	}
+
+	prevExpArgs := []any{tenantID, prevStart, prevEnd}
+	prevExpFilter := ""
+	if outletID != nil {
+		prevExpFilter = " AND outlet_id = $4"
+		prevExpArgs = append(prevExpArgs, *outletID)
+	}
+	err = q.QueryRow(ctx, `
+		SELECT COALESCE(SUM(amount), 0)
+		FROM expenses
+		WHERE tenant_id = $1
+			AND expense_date >= $2 AND expense_date < $3`+prevExpFilter+`
+	`, prevExpArgs...).Scan(&summary.PrevExpenses)
+	if err != nil {
+		summary.PrevExpenses = 0
+	}
+	summary.PrevProfit = summary.PrevRevenue - summary.PrevExpenses
+
+	// Growth percentage
+	if summary.PrevRevenue > 0 {
+		summary.RevenueGrowthPct = float64(summary.Revenue-summary.PrevRevenue) / float64(summary.PrevRevenue) * 100
+	}
+
+	return summary, nil
 }

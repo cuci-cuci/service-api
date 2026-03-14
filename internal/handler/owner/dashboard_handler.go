@@ -2,8 +2,11 @@ package owner
 
 import (
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -108,6 +111,78 @@ func (h *OwnerDashboardHandler) GetGoals(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	response.JSON(w, http.StatusOK, goals)
+}
+
+func (h *OwnerDashboardHandler) StreamSummary(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+
+	outletID := parseOutletID(r)
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	send := func() {
+		summary, svcErr := h.svc.GetSummary(r.Context(), tenantID, outletID)
+		if svcErr != nil {
+			slog.Error("SSE: failed to get dashboard summary", "error", svcErr)
+			return
+		}
+		data, marshalErr := json.Marshal(summary)
+		if marshalErr != nil {
+			slog.Error("SSE: failed to marshal summary", "error", marshalErr)
+			return
+		}
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	send()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			send()
+		}
+	}
+}
+
+func (h *OwnerDashboardHandler) GetSummaryRange(w http.ResponseWriter, r *http.Request) {
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+
+	startDate := r.URL.Query().Get("start")
+	endDate := r.URL.Query().Get("end")
+	if startDate == "" || endDate == "" {
+		response.Error(w, apperror.Validation("start and end query parameters are required"))
+		return
+	}
+
+	outletID := parseOutletID(r)
+
+	summary, err := h.svc.GetSummaryByDateRange(r.Context(), tenantID, startDate, endDate, outletID)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, summary)
 }
 
 func (h *OwnerDashboardHandler) UpsertGoal(w http.ResponseWriter, r *http.Request) {

@@ -13,11 +13,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pressly/goose/v3"
+	"github.com/redis/go-redis/v9"
 
 	// Import pgx stdlib driver for goose
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/bangun-ekosistem/service-api/internal/config"
+	"github.com/bangun-ekosistem/service-api/internal/pkg/cache"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
 	"github.com/bangun-ekosistem/service-api/internal/scheduler"
 	"github.com/bangun-ekosistem/service-api/internal/server"
@@ -72,12 +74,33 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create and start server
-	srv := server.NewServer(cfg, pool)
+	// Optional: connect to Redis (for rate limiting, etc.)
+	var redisClient *redis.Client
+	if cfg.RedisURL != "" {
+		rc, err := cache.NewRedisClient(cfg.RedisURL)
+		if err != nil {
+			slog.Warn("failed to parse REDIS_URL, continuing without Redis", "error", err)
+		} else if cache.IsAvailable(rc) {
+			redisClient = rc
+			slog.Info("connected to redis")
+		} else {
+			slog.Warn("redis not reachable, continuing without Redis")
+			_ = rc.Close()
+		}
+	} else {
+		slog.Info("REDIS_URL not set, rate limiting will use in-memory backend")
+	}
+	if redisClient != nil {
+		defer redisClient.Close()
+	}
 
-	// Start daily summary scheduler
+	// Create and start server
+	srv := server.NewServer(cfg, pool, redisClient)
+
+	// Start daily summary + low stock alert scheduler
 	notifSvc := service.NewNotificationService(pool, cfg)
-	sched := scheduler.New(notifSvc)
+	inventorySvc := service.NewInventoryService(pool)
+	sched := scheduler.New(notifSvc, inventorySvc)
 	schedCtx, schedCancel := context.WithCancel(ctx)
 	defer schedCancel()
 	sched.Start(schedCtx)

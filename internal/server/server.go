@@ -10,24 +10,27 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/bangun-ekosistem/service-api/internal/config"
 )
 
 type Server struct {
-	Router   *chi.Mux
-	Config   *config.Config
-	DB       *pgxpool.Pool
-	Validate *validator.Validate
-	server   *http.Server
+	Router      *chi.Mux
+	Config      *config.Config
+	DB          *pgxpool.Pool
+	Validate    *validator.Validate
+	RedisClient *redis.Client // nil when Redis is not configured
+	server      *http.Server
 }
 
-func NewServer(cfg *config.Config, db *pgxpool.Pool) *Server {
+func NewServer(cfg *config.Config, db *pgxpool.Pool, redisClient *redis.Client) *Server {
 	s := &Server{
-		Router:   chi.NewRouter(),
-		Config:   cfg,
-		DB:       db,
-		Validate: validator.New(),
+		Router:      chi.NewRouter(),
+		Config:      cfg,
+		DB:          db,
+		Validate:    validator.New(),
+		RedisClient: redisClient,
 	}
 
 	s.RegisterRoutes()
