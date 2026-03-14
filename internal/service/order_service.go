@@ -50,6 +50,7 @@ func (s *OrderService) List(ctx context.Context, tenantID uuid.UUID, params pagi
 		SELECT o.id, o.transaction_id, o.tenant_id, o.outlet_id, o.status,
 		       o.estimated_completion_at, o.completed_at, o.picked_up_at, o.notes,
 		       o.customer_phone, o.tracking_token,
+		       COALESCE(o.delivery_type, 'pickup'), o.delivery_address, COALESCE(o.delivery_fee, 0), o.scheduled_pickup_at,
 		       o.created_by, o.updated_by, o.created_at, o.updated_at,
 		       t.customer_name, COALESCE(t.total_amount, 0), COALESCE(t.local_order_number, '')
 		FROM orders o
@@ -101,6 +102,7 @@ func (s *OrderService) List(ctx context.Context, tenantID uuid.UUID, params pagi
 			&r.ID, &r.TransactionID, &r.TenantID, &r.OutletID, &r.Status,
 			&r.EstimatedCompletionAt, &r.CompletedAt, &r.PickedUpAt, &r.Notes,
 			&r.CustomerPhone, &r.TrackingToken,
+			&r.DeliveryType, &r.DeliveryAddress, &r.DeliveryFee, &r.ScheduledPickupAt,
 			&r.CreatedBy, &r.UpdatedBy, &r.CreatedAt, &r.UpdatedAt,
 			&r.CustomerName, &r.TotalAmount, &r.OrderNumber,
 		); err != nil {
@@ -124,6 +126,7 @@ func (s *OrderService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Order
 		SELECT o.id, o.transaction_id, o.tenant_id, o.outlet_id, o.status,
 		       o.estimated_completion_at, o.completed_at, o.picked_up_at, o.notes,
 		       o.customer_phone, o.tracking_token,
+		       COALESCE(o.delivery_type, 'pickup'), o.delivery_address, COALESCE(o.delivery_fee, 0), o.scheduled_pickup_at,
 		       o.created_by, o.updated_by, o.created_at, o.updated_at,
 		       t.customer_name, COALESCE(t.total_amount, 0), COALESCE(t.local_order_number, '')
 		FROM orders o
@@ -133,6 +136,7 @@ func (s *OrderService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Order
 		&r.ID, &r.TransactionID, &r.TenantID, &r.OutletID, &r.Status,
 		&r.EstimatedCompletionAt, &r.CompletedAt, &r.PickedUpAt, &r.Notes,
 		&r.CustomerPhone, &r.TrackingToken,
+		&r.DeliveryType, &r.DeliveryAddress, &r.DeliveryFee, &r.ScheduledPickupAt,
 		&r.CreatedBy, &r.UpdatedBy, &r.CreatedAt, &r.UpdatedAt,
 		&r.CustomerName, &r.TotalAmount, &r.OrderNumber,
 	)
@@ -224,6 +228,21 @@ func (s *OrderService) Create(ctx context.Context, tenantID uuid.UUID, userID uu
 		custPhone = &req.CustomerPhone
 	}
 
+	deliveryType := "pickup"
+	if req.DeliveryType == "delivery" {
+		deliveryType = "delivery"
+	}
+	var deliveryAddress *string
+	if req.DeliveryAddress != "" {
+		deliveryAddress = &req.DeliveryAddress
+	}
+	var scheduledPickupAt *time.Time
+	if req.ScheduledPickupAt != "" {
+		if t, parseErr := time.Parse(time.RFC3339, req.ScheduledPickupAt); parseErr == nil {
+			scheduledPickupAt = &t
+		}
+	}
+
 	trackingToken := generateTrackingToken()
 
 	orderID := uuid.New()
@@ -232,9 +251,11 @@ func (s *OrderService) Create(ctx context.Context, tenantID uuid.UUID, userID uu
 	_, err = q.Exec(ctx, `
 		INSERT INTO orders (id, transaction_id, tenant_id, outlet_id, status,
 		                    estimated_completion_at, notes, customer_phone, tracking_token,
+		                    delivery_type, delivery_address, delivery_fee, scheduled_pickup_at,
 		                    created_by, updated_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, 'received', $5, $6, $7, $8, $9, $9, $10, $10)
-	`, orderID, txID, tenantID, outletID, estimatedAt, notes, custPhone, trackingToken, userID, now)
+		VALUES ($1, $2, $3, $4, 'received', $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14, $14)
+	`, orderID, txID, tenantID, outletID, estimatedAt, notes, custPhone, trackingToken,
+		deliveryType, deliveryAddress, req.DeliveryFee, scheduledPickupAt, userID, now)
 	if err != nil {
 		return nil, apperror.Internal("failed to create order", err)
 	}
@@ -258,6 +279,10 @@ func (s *OrderService) Create(ctx context.Context, tenantID uuid.UUID, userID uu
 		Notes:                 notes,
 		CustomerPhone:         custPhone,
 		TrackingToken:         &trackingToken,
+		DeliveryType:          deliveryType,
+		DeliveryAddress:       deliveryAddress,
+		DeliveryFee:           req.DeliveryFee,
+		ScheduledPickupAt:     scheduledPickupAt,
 		CreatedBy:             userID,
 		UpdatedBy:             userID,
 		CreatedAt:             now,
@@ -276,12 +301,14 @@ func (s *OrderService) UpdateStatus(ctx context.Context, id uuid.UUID, userID uu
 		SELECT id, transaction_id, tenant_id, outlet_id, status,
 		       estimated_completion_at, completed_at, picked_up_at, notes,
 		       customer_phone, tracking_token,
+		       COALESCE(delivery_type, 'pickup'), delivery_address, COALESCE(delivery_fee, 0), scheduled_pickup_at,
 		       created_by, updated_by, created_at, updated_at
 		FROM orders WHERE id = $1
 	`, id).Scan(
 		&order.ID, &order.TransactionID, &order.TenantID, &order.OutletID, &order.Status,
 		&order.EstimatedCompletionAt, &order.CompletedAt, &order.PickedUpAt, &order.Notes,
 		&order.CustomerPhone, &order.TrackingToken,
+		&order.DeliveryType, &order.DeliveryAddress, &order.DeliveryFee, &order.ScheduledPickupAt,
 		&order.CreatedBy, &order.UpdatedBy, &order.CreatedAt, &order.UpdatedAt,
 	)
 	if err != nil {
@@ -368,6 +395,7 @@ func (s *OrderService) ListActive(ctx context.Context, tenantID uuid.UUID, outle
 		SELECT o.id, o.transaction_id, o.tenant_id, o.outlet_id, o.status,
 		       o.estimated_completion_at, o.completed_at, o.picked_up_at, o.notes,
 		       o.customer_phone, o.tracking_token,
+		       COALESCE(o.delivery_type, 'pickup'), o.delivery_address, COALESCE(o.delivery_fee, 0), o.scheduled_pickup_at,
 		       o.created_by, o.updated_by, o.created_at, o.updated_at,
 		       t.customer_name, COALESCE(t.total_amount, 0), COALESCE(t.local_order_number, '')
 		FROM orders o
@@ -400,6 +428,7 @@ func (s *OrderService) ListActive(ctx context.Context, tenantID uuid.UUID, outle
 			&r.ID, &r.TransactionID, &r.TenantID, &r.OutletID, &r.Status,
 			&r.EstimatedCompletionAt, &r.CompletedAt, &r.PickedUpAt, &r.Notes,
 			&r.CustomerPhone, &r.TrackingToken,
+			&r.DeliveryType, &r.DeliveryAddress, &r.DeliveryFee, &r.ScheduledPickupAt,
 			&r.CreatedBy, &r.UpdatedBy, &r.CreatedAt, &r.UpdatedAt,
 			&r.CustomerName, &r.TotalAmount, &r.OrderNumber,
 		); err != nil {
@@ -429,13 +458,30 @@ func (s *OrderService) CreateFromTransaction(ctx context.Context, tenantID uuid.
 		estimatedAt = &t
 	}
 
+	deliveryType := "pickup"
+	if tx.DeliveryType != nil && *tx.DeliveryType == "delivery" {
+		deliveryType = "delivery"
+	}
+	var deliveryFee int64
+	if tx.DeliveryFee != nil {
+		deliveryFee = *tx.DeliveryFee
+	}
+	var scheduledPickupAt *time.Time
+	if tx.ScheduledPickupAt != nil && *tx.ScheduledPickupAt != "" {
+		if t, parseErr := time.Parse(time.RFC3339, *tx.ScheduledPickupAt); parseErr == nil {
+			scheduledPickupAt = &t
+		}
+	}
+
 	_, err := q.Exec(ctx, `
 		INSERT INTO orders (id, transaction_id, tenant_id, outlet_id, status,
 		                    estimated_completion_at, notes, customer_phone,
-		                    tracking_token, created_by, updated_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, 'received', $5, $6, $7, $8, $9, $9, $10, $10)
+		                    tracking_token, delivery_type, delivery_address, delivery_fee, scheduled_pickup_at,
+		                    created_by, updated_by, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, 'received', $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14, $14)
 		ON CONFLICT (transaction_id) DO NOTHING
-	`, orderID, tx.ID, tenantID, tx.OutletID, estimatedAt, tx.Notes, tx.CustomerPhone, trackingToken, userID, now)
+	`, orderID, tx.ID, tenantID, tx.OutletID, estimatedAt, tx.Notes, tx.CustomerPhone, trackingToken,
+		deliveryType, tx.DeliveryAddress, deliveryFee, scheduledPickupAt, userID, now)
 	if err != nil {
 		return apperror.Internal("failed to create order from transaction", err)
 	}
