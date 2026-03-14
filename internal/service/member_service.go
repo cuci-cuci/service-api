@@ -311,6 +311,79 @@ func (s *MemberService) AwardReferralPoints(ctx context.Context, memberID uuid.U
 	slog.Info("referral points awarded", "referrer_id", *referredBy, "referred_member_id", memberID)
 }
 
+// PointsPerThousand defines the conversion rate: 100 points = Rp 1.000
+const pointsPerThousandIDR = 100
+
+// RedeemPoints deducts points from a member and returns the discount amount.
+// Conversion: 100 points = Rp 1.000
+func (s *MemberService) RedeemPoints(ctx context.Context, tenantID uuid.UUID, memberID uuid.UUID, points int) (discountAmount int64, remainingPoints int, err error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	if points <= 0 {
+		return 0, 0, apperror.Validation("points must be positive")
+	}
+
+	// Ensure redeemed in multiples of 100
+	if points%pointsPerThousandIDR != 0 {
+		return 0, 0, apperror.Validation("points must be in multiples of 100")
+	}
+
+	var currentPoints int
+	err = q.QueryRow(ctx, `SELECT total_points FROM members WHERE id = $1`, memberID).Scan(&currentPoints)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return 0, 0, apperror.NotFound("member not found")
+		}
+		return 0, 0, apperror.Internal("failed to get member points", err)
+	}
+
+	if points > currentPoints {
+		return 0, 0, apperror.Validation("insufficient points")
+	}
+
+	// 100 points = Rp 1.000
+	discountAmount = int64(points / pointsPerThousandIDR * 1000)
+
+	_, err = q.Exec(ctx,
+		`UPDATE members SET total_points = total_points - $1 WHERE id = $2`,
+		points, memberID)
+	if err != nil {
+		return 0, 0, apperror.Internal("failed to deduct points", err)
+	}
+
+	// Log the redemption
+	_, err = q.Exec(ctx,
+		`INSERT INTO point_redemptions (tenant_id, member_id, points_redeemed, discount_amount) VALUES ($1, $2, $3, $4)`,
+		tenantID, memberID, points, discountAmount)
+	if err != nil {
+		slog.Error("failed to log point redemption", "error", err)
+		// Non-fatal: points already deducted, just log the error
+	}
+
+	remainingPoints = currentPoints - points
+	return discountAmount, remainingPoints, nil
+}
+
+// AwardPoints awards loyalty points based on transaction amount.
+// Rate: 1 point per Rp 1.000 spent.
+func (s *MemberService) AwardPoints(ctx context.Context, memberID uuid.UUID, transactionAmount int64) (pointsEarned int, err error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	pointsEarned = int(transactionAmount / 1000) // 1 point per Rp 1.000
+	if pointsEarned <= 0 {
+		return 0, nil
+	}
+
+	_, err = q.Exec(ctx,
+		`UPDATE members SET total_points = total_points + $1 WHERE id = $2`,
+		pointsEarned, memberID)
+	if err != nil {
+		return 0, apperror.Internal("failed to award points", err)
+	}
+
+	return pointsEarned, nil
+}
+
 func generateReferralCode() string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)

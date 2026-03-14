@@ -397,6 +397,7 @@ func (s *Server) RegisterRoutes() {
 			// Finance: Reports
 			r.Get("/finance/pnl", ownerFinanceHandler.GetPnLReport)
 			r.Get("/finance/cashflow", ownerFinanceHandler.GetCashFlowReport)
+			r.Get("/finance/tax", ownerFinanceHandler.GetTaxReport)
 
 			// Inventory: Supply Categories
 			r.Get("/supply-categories", ownerInventoryHandler.ListCategories)
@@ -436,6 +437,8 @@ func (s *Server) RegisterRoutes() {
 			r.Get("/members/lookup", memberHandler.Lookup)
 			r.Get("/members/search", memberHandler.Search)
 			r.Post("/members", memberHandler.Register)
+			r.Post("/members/{id}/redeem", memberHandler.RedeemPoints)
+			r.Post("/members/{id}/award-points", memberHandler.AwardPoints)
 			r.Get("/outlets", posOutletHandler.List)
 
 			r.Get("/orders", orderHandler.List)

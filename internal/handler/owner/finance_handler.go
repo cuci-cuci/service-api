@@ -283,3 +283,36 @@ func (h *FinanceHandler) GetCashFlowReport(w http.ResponseWriter, r *http.Reques
 	}
 	response.JSON(w, http.StatusOK, report)
 }
+
+func (h *FinanceHandler) GetTaxReport(w http.ResponseWriter, r *http.Request) {
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+
+	monthStr := r.URL.Query().Get("month")
+	yearStr := r.URL.Query().Get("year")
+	if monthStr == "" || yearStr == "" {
+		response.Error(w, apperror.Validation("month and year are required"))
+		return
+	}
+
+	month, err := strconv.Atoi(monthStr)
+	if err != nil || month < 1 || month > 12 {
+		response.Error(w, apperror.Validation("invalid month"))
+		return
+	}
+	year, err := strconv.Atoi(yearStr)
+	if err != nil || year < 2020 {
+		response.Error(w, apperror.Validation("invalid year"))
+		return
+	}
+
+	report, err := h.svc.GetTaxReport(r.Context(), tenantID, month, year)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]any{"data": report})
+}

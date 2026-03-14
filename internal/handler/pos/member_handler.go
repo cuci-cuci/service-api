@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/bangun-ekosistem/service-api/internal/domain"
 	"github.com/bangun-ekosistem/service-api/internal/middleware"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
@@ -74,4 +77,68 @@ func (h *MemberHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusCreated, map[string]any{"data": member})
+}
+
+func (h *MemberHandler) RedeemPoints(w http.ResponseWriter, r *http.Request) {
+	tenantID := middleware.GetTenantID(r.Context())
+	if tenantID == nil {
+		response.Error(w, apperror.Unauthorized("tenant not found"))
+		return
+	}
+
+	memberID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, apperror.Validation("invalid member id"))
+		return
+	}
+
+	var req struct {
+		Points int `json:"points"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, apperror.Validation("invalid request body"))
+		return
+	}
+
+	discountAmount, remainingPoints, err := h.svc.RedeemPoints(r.Context(), *tenantID, memberID, req.Points)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"discount_amount":  discountAmount,
+			"remaining_points": remainingPoints,
+			"points_redeemed":  req.Points,
+		},
+	})
+}
+
+func (h *MemberHandler) AwardPoints(w http.ResponseWriter, r *http.Request) {
+	memberID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, apperror.Validation("invalid member id"))
+		return
+	}
+
+	var req struct {
+		TransactionAmount int64 `json:"transaction_amount"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, apperror.Validation("invalid request body"))
+		return
+	}
+
+	pointsEarned, err := h.svc.AwardPoints(r.Context(), memberID, req.TransactionAmount)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"points_earned": pointsEarned,
+		},
+	})
 }

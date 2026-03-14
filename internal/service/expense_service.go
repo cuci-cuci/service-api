@@ -402,3 +402,57 @@ func (s *ExpenseService) ProcessDueRecurring(ctx context.Context) error {
 
 	return nil
 }
+
+// GetTaxReport generates a monthly tax report (PPN 11%).
+func (s *ExpenseService) GetTaxReport(ctx context.Context, tenantID uuid.UUID, month, year int) (*domain.TaxReport, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	startDate := fmt.Sprintf("%04d-%02d-01", year, month)
+	// Last day of month
+	endDate := time.Date(year, time.Month(month+1), 0, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
+
+	report := &domain.TaxReport{Month: month, Year: year}
+
+	// Summary totals
+	err := q.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE(SUM(subtotal), 0), COALESCE(SUM(discount_amount), 0), COALESCE(SUM(total_amount), 0)
+		FROM transactions
+		WHERE tenant_id = $1 AND created_at::date BETWEEN $2 AND $3 AND status = 'completed'
+	`, tenantID, startDate, endDate).Scan(&report.TransactionCount, &report.GrossSales, &report.TotalDiscount, &report.NetSales)
+	if err != nil {
+		return nil, apperror.Internal("failed to get tax summary", err)
+	}
+
+	report.TaxableBase = report.NetSales
+	report.PPNAmount = int64(float64(report.TaxableBase) * 0.11)
+
+	// Per-outlet breakdown
+	rows, err := q.Query(ctx, `
+		SELECT t.outlet_id, COALESCE(o.name, 'Unknown'), COUNT(*),
+		       COALESCE(SUM(t.subtotal), 0), COALESCE(SUM(t.discount_amount), 0), COALESCE(SUM(t.total_amount), 0)
+		FROM transactions t
+		LEFT JOIN outlets o ON t.outlet_id = o.id
+		WHERE t.tenant_id = $1 AND t.created_at::date BETWEEN $2 AND $3 AND t.status = 'completed'
+		GROUP BY t.outlet_id, o.name
+		ORDER BY SUM(t.total_amount) DESC
+	`, tenantID, startDate, endDate)
+	if err != nil {
+		return nil, apperror.Internal("failed to get outlet tax breakdown", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var item domain.TaxByOutlet
+		if err := rows.Scan(&item.OutletID, &item.OutletName, &item.TxCount,
+			&item.GrossSales, &item.Discount, &item.NetSales); err != nil {
+			return nil, apperror.Internal("failed to scan outlet breakdown", err)
+		}
+		item.PPNAmount = int64(float64(item.NetSales) * 0.11)
+		report.OutletBreakdown = append(report.OutletBreakdown, item)
+	}
+	if report.OutletBreakdown == nil {
+		report.OutletBreakdown = []domain.TaxByOutlet{}
+	}
+
+	return report, nil
+}

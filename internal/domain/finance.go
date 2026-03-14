@@ -106,3 +106,25 @@ type CashFlowReport struct {
 	CashOut int64  `json:"cash_out"`
 	NetFlow int64  `json:"net_flow"`
 }
+
+type TaxReport struct {
+	Month          int              `json:"month"`
+	Year           int              `json:"year"`
+	GrossSales     int64            `json:"gross_sales"`
+	TotalDiscount  int64            `json:"total_discount"`
+	NetSales       int64            `json:"net_sales"`
+	TaxableBase    int64            `json:"taxable_base"` // DPP
+	PPNAmount      int64            `json:"ppn_amount"`   // 11%
+	TransactionCount int            `json:"transaction_count"`
+	OutletBreakdown []TaxByOutlet   `json:"outlet_breakdown"`
+}
+
+type TaxByOutlet struct {
+	OutletID   uuid.UUID `json:"outlet_id"`
+	OutletName string    `json:"outlet_name"`
+	GrossSales int64     `json:"gross_sales"`
+	Discount   int64     `json:"discount"`
+	NetSales   int64     `json:"net_sales"`
+	PPNAmount  int64     `json:"ppn_amount"`
+	TxCount    int       `json:"transaction_count"`
+}
