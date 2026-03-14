@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/google/uuid"
+
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/response"
 	"github.com/bangun-ekosistem/service-api/internal/service"
@@ -18,6 +20,18 @@ func NewOwnerDashboardHandler(svc *service.OwnerDashboardService) *OwnerDashboar
 	return &OwnerDashboardHandler{svc: svc}
 }
 
+func parseOutletID(r *http.Request) *uuid.UUID {
+	oidStr := r.URL.Query().Get("outlet_id")
+	if oidStr == "" {
+		return nil
+	}
+	oid, err := uuid.Parse(oidStr)
+	if err != nil {
+		return nil
+	}
+	return &oid
+}
+
 func (h *OwnerDashboardHandler) GetSummary(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := getTenantID(r)
 	if err != nil {
@@ -25,7 +39,9 @@ func (h *OwnerDashboardHandler) GetSummary(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	summary, err := h.svc.GetSummary(r.Context(), tenantID)
+	outletID := parseOutletID(r)
+
+	summary, err := h.svc.GetSummary(r.Context(), tenantID, outletID)
 	if err != nil {
 		response.Error(w, err)
 		return
@@ -47,7 +63,9 @@ func (h *OwnerDashboardHandler) GetCashierPerformance(w http.ResponseWriter, r *
 		}
 	}
 
-	results, err := h.svc.GetCashierPerformance(r.Context(), tenantID, days)
+	outletID := parseOutletID(r)
+
+	results, err := h.svc.GetCashierPerformance(r.Context(), tenantID, days, outletID)
 	if err != nil {
 		response.Error(w, err)
 		return
