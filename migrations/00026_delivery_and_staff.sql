@@ -1,11 +1,11 @@
 -- +goose Up
 
 -- Add delivery fields to orders
-ALTER TABLE orders ADD COLUMN delivery_type VARCHAR(20) DEFAULT 'pickup';
-ALTER TABLE orders ADD COLUMN delivery_address TEXT;
-ALTER TABLE orders ADD COLUMN delivery_fee BIGINT DEFAULT 0;
-ALTER TABLE orders ADD COLUMN scheduled_pickup_at TIMESTAMPTZ;
-ALTER TABLE orders ADD COLUMN customer_phone VARCHAR(20);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_type VARCHAR(20) DEFAULT 'pickup';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_address TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_fee BIGINT DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS scheduled_pickup_at TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(20);
 
 -- Staff activity log (void, cancel, refund tracking)
 CREATE TABLE staff_activity_logs (
