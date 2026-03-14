@@ -21,9 +21,7 @@ WORKDIR /app
 
 COPY --from=builder /app/server .
 COPY --from=builder /app/migrations ./migrations
-COPY entrypoint.sh .
-RUN chmod +x entrypoint.sh
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "./entrypoint.sh 2>&1; echo 'EXIT CODE:' $?; sleep infinity"]
+CMD ["./server"]
