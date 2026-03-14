@@ -164,7 +164,7 @@ func (s *SyncService) Download(ctx context.Context, tenantID uuid.UUID, currentV
 		resp.Config = cv
 	}
 
-	// Always return fresh data
+	// Always return fresh data — services + categories via service methods
 	services, err := s.templateSvc.GetServicesWithPrices(ctx, tenantID)
 	if err != nil {
 		return nil, err
@@ -177,39 +177,46 @@ func (s *SyncService) Download(ctx context.Context, tenantID uuid.UUID, currentV
 	}
 	resp.Categories = categories
 
-	// Get members
-	rows, err := q.Query(ctx,
+	// Batch 3 remaining queries into a single round-trip (members + outlets + payment methods)
+	dlBatch := &pgx.Batch{}
+	dlBatch.Queue(
 		`SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, total_spending,
 		        referral_code, referred_by_member_id, has_first_transaction, created_at
 		 FROM members WHERE tenant_id = $1 OR tenant_id IS NULL`, tenantID)
+	dlBatch.Queue(
+		`SELECT id, tenant_id, name, address, phone, is_active FROM outlets WHERE tenant_id = $1 AND is_active = true`, tenantID)
+	dlBatch.Queue(
+		`SELECT id, tenant_id, name, type, is_active, sort_order, created_at FROM payment_methods WHERE tenant_id = $1 AND is_active = true ORDER BY sort_order`, tenantID)
+
+	dlBR := q.SendBatch(ctx, dlBatch)
+	defer dlBR.Close()
+
+	// Result 1: Members
+	memberRows, err := dlBR.Query()
 	if err != nil {
 		return nil, apperror.Internal("failed to get members", err)
 	}
-	defer rows.Close()
-
 	var members []domain.Member
-	for rows.Next() {
+	for memberRows.Next() {
 		var m domain.Member
-		if err := rows.Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier,
+		if err := memberRows.Scan(&m.ID, &m.TenantID, &m.Name, &m.Phone, &m.Email, &m.Tier,
 			&m.DiscountPercent, &m.TotalPoints, &m.TotalSpending,
 			&m.ReferralCode, &m.ReferredByMemberID, &m.HasFirstTransaction, &m.CreatedAt); err != nil {
 			return nil, apperror.Internal("failed to scan member", err)
 		}
 		members = append(members, m)
 	}
+	memberRows.Close()
 	if members == nil {
 		members = []domain.Member{}
 	}
 	resp.Members = members
 
-	// Get outlets
-	outletRows, err := q.Query(ctx,
-		`SELECT id, tenant_id, name, address, phone, is_active FROM outlets WHERE tenant_id = $1 AND is_active = true`, tenantID)
+	// Result 2: Outlets
+	outletRows, err := dlBR.Query()
 	if err != nil {
 		return nil, apperror.Internal("failed to get outlets", err)
 	}
-	defer outletRows.Close()
-
 	var outlets []domain.Outlet
 	for outletRows.Next() {
 		var o domain.Outlet
@@ -218,19 +225,17 @@ func (s *SyncService) Download(ctx context.Context, tenantID uuid.UUID, currentV
 		}
 		outlets = append(outlets, o)
 	}
+	outletRows.Close()
 	if outlets == nil {
 		outlets = []domain.Outlet{}
 	}
 	resp.Outlets = outlets
 
-	// Get payment methods
-	pmRows, err := q.Query(ctx,
-		`SELECT id, tenant_id, name, type, is_active, sort_order, created_at FROM payment_methods WHERE tenant_id = $1 AND is_active = true ORDER BY sort_order`, tenantID)
+	// Result 3: Payment Methods
+	pmRows, err := dlBR.Query()
 	if err != nil {
 		return nil, apperror.Internal("failed to get payment methods", err)
 	}
-	defer pmRows.Close()
-
 	var paymentMethods []domain.PaymentMethod
 	for pmRows.Next() {
 		var pm domain.PaymentMethod
@@ -239,6 +244,7 @@ func (s *SyncService) Download(ctx context.Context, tenantID uuid.UUID, currentV
 		}
 		paymentMethods = append(paymentMethods, pm)
 	}
+	pmRows.Close()
 	if paymentMethods == nil {
 		paymentMethods = []domain.PaymentMethod{}
 	}

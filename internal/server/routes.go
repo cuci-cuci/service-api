@@ -27,6 +27,7 @@ func (s *Server) RegisterRoutes() {
 	s.Router.Use(middleware.RequestLogging)
 	s.Router.Use(middleware.Recovery)
 	s.Router.Use(middleware.MaxBodySize)
+	s.Router.Use(middleware.SecurityHeaders)
 
 	// FIX 2: CORS - do not combine AllowCredentials with wildcard origin.
 	origins := strings.Split(s.Config.CORSAllowedOrigins, ",")
@@ -71,9 +72,11 @@ func (s *Server) RegisterRoutes() {
 	billingService := service.NewBillingService(s.DB)
 	notificationService := service.NewNotificationService(s.DB, s.Config)
 	gatewayService := service.NewGatewayService(s.DB, s.Config)
+	expenseService := service.NewExpenseService(s.DB)
+	ownerDashboardService := service.NewOwnerDashboardService(s.DB)
 
 	// Handlers
-	authHandler := handler.NewAuthHandler(authService, billingService, s.Validate)
+	authHandler := handler.NewAuthHandler(authService, billingService, s.Validate, s.Config)
 	tenantHandler := admin.NewTenantHandler(tenantService, auditService, s.Validate)
 	outletHandler := admin.NewOutletHandler(outletService, s.Validate)
 	templateHandler := admin.NewServiceTemplateHandler(templateService, s.Validate)
@@ -98,6 +101,8 @@ func (s *Server) RegisterRoutes() {
 	ownerBillingHandler := owner.NewBillingHandler(billingService)
 	ownerNotificationHandler := owner.NewNotificationHandler(notificationService)
 	ownerGatewayHandler := owner.NewGatewayHandler(gatewayService, s.Validate)
+	ownerFinanceHandler := owner.NewFinanceHandler(expenseService, s.Validate)
+	ownerDashboardHandler := owner.NewOwnerDashboardHandler(ownerDashboardService)
 
 	trackingHandler := handler.NewTrackingHandler(orderService)
 	webhookHandler := handler.NewWebhookHandler(gatewayService)
@@ -347,6 +352,34 @@ func (s *Server) RegisterRoutes() {
 			r.Get("/analytics/daily-revenue", ownerAnalyticsHandler.DailyRevenue)
 			r.Get("/analytics/by-service", ownerAnalyticsHandler.RevenueByService)
 			r.Get("/analytics/by-payment-method", ownerAnalyticsHandler.RevenueByPaymentMethod)
+
+			// Finance: Expenses
+			r.Route("/expenses", func(r chi.Router) {
+				r.Post("/", ownerFinanceHandler.CreateExpense)
+				r.Get("/", ownerFinanceHandler.ListExpenses)
+				r.Get("/{id}", ownerFinanceHandler.GetExpense)
+				r.Put("/{id}", ownerFinanceHandler.UpdateExpense)
+				r.Delete("/{id}", ownerFinanceHandler.DeleteExpense)
+			})
+
+			// Finance: Expense Categories
+			r.Get("/expense-categories", ownerFinanceHandler.ListCategories)
+			r.Post("/expense-categories", ownerFinanceHandler.CreateCategory)
+
+			// Finance: Recurring Expenses
+			r.Post("/recurring-expenses", ownerFinanceHandler.CreateRecurringExpense)
+			r.Get("/recurring-expenses", ownerFinanceHandler.ListRecurringExpenses)
+
+			// Finance: Reports
+			r.Get("/finance/pnl", ownerFinanceHandler.GetPnLReport)
+			r.Get("/finance/cashflow", ownerFinanceHandler.GetCashFlowReport)
+
+			// Owner Dashboard
+			r.Get("/dashboard/summary", ownerDashboardHandler.GetSummary)
+			r.Get("/dashboard/cashier-performance", ownerDashboardHandler.GetCashierPerformance)
+			r.Get("/dashboard/customer-insights", ownerDashboardHandler.GetCustomerInsights)
+			r.Get("/dashboard/goals", ownerDashboardHandler.GetGoals)
+			r.Put("/dashboard/goals", ownerDashboardHandler.UpsertGoal)
 		})
 
 		// POS routes (authenticated, tenant-scoped)
