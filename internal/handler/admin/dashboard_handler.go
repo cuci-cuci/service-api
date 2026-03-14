@@ -43,3 +43,21 @@ func (h *DashboardHandler) TransactionList(w http.ResponseWriter, r *http.Reques
 	}
 	response.JSONWithMeta(w, http.StatusOK, transactions, params.ToMeta(total))
 }
+
+func (h *DashboardHandler) TenantHealth(w http.ResponseWriter, r *http.Request) {
+	data, err := h.svc.GetTenantHealth(r.Context())
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, data)
+}
+
+func (h *DashboardHandler) TenantHealthOverview(w http.ResponseWriter, r *http.Request) {
+	data, err := h.svc.TenantHealthOverview(r.Context())
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, data)
+}

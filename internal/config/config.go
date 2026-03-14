@@ -29,6 +29,7 @@ type Config struct {
 	XenditCurrency        string `env:"XENDIT_CURRENCY" envDefault:"IDR"`
 	XenditDescription     string `env:"XENDIT_DESCRIPTION" envDefault:"LaundryPOS Payment"`
 	XenditQRCallbackURL   string `env:"XENDIT_QR_CALLBACK_URL"` // Required for QR Codes API; set to your webhook URL
+	RedisURL              string `env:"REDIS_URL"`              // Optional; enables Redis-backed rate limiting
 }
 
 func Load() (*Config, error) {

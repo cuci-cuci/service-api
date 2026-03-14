@@ -31,3 +31,17 @@ func (h *TrackingHandler) GetByToken(w http.ResponseWriter, r *http.Request) {
 	}
 	response.JSON(w, http.StatusOK, order)
 }
+
+func (h *TrackingHandler) RequestPickup(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	if token == "" {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": "tracking token required"})
+		return
+	}
+
+	if err := h.orderSvc.RequestPickup(r.Context(), token); err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"message": "permintaan penjemputan berhasil dikirim"})
+}

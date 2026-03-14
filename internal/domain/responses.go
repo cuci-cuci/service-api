@@ -50,6 +50,7 @@ type SyncDownloadResponse struct {
 	Members        []Member           `json:"members"`
 	Outlets        []Outlet           `json:"outlets"`
 	PaymentMethods []PaymentMethod    `json:"payment_methods"`
+	DeliveryZones  []DeliveryZone     `json:"delivery_zones"`
 }
 
 type ServiceWithPrice struct {
@@ -194,6 +195,15 @@ type GatewayPaymentStatusResponse struct {
 	GatewayStatus string     `json:"gateway_status"`
 	PaidAt        *time.Time `json:"paid_at,omitempty"`
 	IsFinal       bool       `json:"is_final"`
+}
+
+type TenantHealth struct {
+	TenantID     uuid.UUID  `json:"tenant_id"`
+	TenantName   string     `json:"tenant_name"`
+	LastSyncAt   *time.Time `json:"last_sync_at"`
+	WeekTxCount  int        `json:"week_tx_count"`
+	ActiveOrders int        `json:"active_orders"`
+	Status       string     `json:"status"` // "healthy", "warning", "critical"
 }
 
 func ToUserResponse(u User) UserResponse {

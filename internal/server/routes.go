@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -75,7 +76,11 @@ func (s *Server) RegisterRoutes() {
 	expenseService := service.NewExpenseService(s.DB)
 	ownerDashboardService := service.NewOwnerDashboardService(s.DB)
 	inventoryService := service.NewInventoryService(s.DB)
+	orderService.SetInventoryService(inventoryService)
+	syncService.SetInventoryService(inventoryService)
+	syncService.SetNotificationService(notificationService)
 	staffActivityService := service.NewStaffActivityService(s.DB)
+	deliveryService := service.NewDeliveryService(s.DB)
 
 	// Handlers
 	authHandler := handler.NewAuthHandler(authService, billingService, s.Validate, s.Config)
@@ -107,6 +112,8 @@ func (s *Server) RegisterRoutes() {
 	ownerDashboardHandler := owner.NewOwnerDashboardHandler(ownerDashboardService)
 	ownerInventoryHandler := owner.NewInventoryHandler(inventoryService, s.Validate)
 	ownerStaffHandler := owner.NewStaffHandler(staffActivityService)
+	ownerSSEHandler := owner.NewSSEHandler(s.DB)
+	ownerDeliveryHandler := owner.NewDeliveryHandler(deliveryService, s.Validate)
 
 	adminInventoryService := service.NewAdminInventoryService(s.DB)
 	adminOrderService := service.NewAdminOrderService(s.DB)
@@ -123,17 +130,56 @@ func (s *Server) RegisterRoutes() {
 	orderHandler := pos.NewOrderHandler(orderService, notificationService, s.Validate)
 	shiftHandler := pos.NewShiftHandler(shiftService, s.Validate)
 	posGatewayHandler := pos.NewGatewayHandler(gatewayService, s.Validate)
+	posDeliveryHandler := pos.NewDeliveryHandler(deliveryService, s.Validate)
 
 	// Health check
 	s.Router.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		response.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+
+		type healthResponse struct {
+			Status  string `json:"status"`
+			DB      string `json:"db"`
+			Redis   string `json:"redis"`
+			Version string `json:"version"`
+		}
+
+		resp := healthResponse{
+			Status:  "ok",
+			DB:      "ok",
+			Redis:   "not_configured",
+			Version: "1.0.0",
+		}
+
+		httpStatus := http.StatusOK
+
+		// Check PostgreSQL
+		if err := s.DB.Ping(ctx); err != nil {
+			resp.DB = "unhealthy"
+			resp.Status = "unhealthy"
+			httpStatus = http.StatusServiceUnavailable
+		}
+
+		// Check Redis
+		if s.RedisClient != nil {
+			if err := s.RedisClient.Ping(ctx).Err(); err != nil {
+				resp.Redis = "unavailable"
+				if resp.Status == "ok" {
+					resp.Status = "degraded"
+				}
+			} else {
+				resp.Redis = "ok"
+			}
+		}
+
+		response.JSON(w, httpStatus, resp)
 	})
 
 	// API v1
 	s.Router.Route("/api/v1", func(r chi.Router) {
 		// Auth (public, rate-limited)
 		r.Route("/auth", func(r chi.Router) {
-			r.Use(middleware.RateLimit(20, time.Minute))
+			r.Use(middleware.RateLimitWithRedis(s.RedisClient, 20, time.Minute))
 			r.Post("/login", authHandler.Login)
 			r.Post("/refresh", authHandler.RefreshToken)
 			r.Post("/register", authHandler.Register)
@@ -146,9 +192,8 @@ func (s *Server) RegisterRoutes() {
 
 		// Public: order tracking (no auth needed)
 		r.Get("/track/{token}", trackingHandler.GetByToken)
-
 		// Public: Xendit webhook (no auth, uses x-callback-token header)
-		r.With(middleware.RateLimit(60, time.Minute)).Post("/webhooks/xendit", webhookHandler.XenditCallback)
+		r.With(middleware.RateLimitWithRedis(s.RedisClient, 60, time.Minute)).Post("/webhooks/xendit", webhookHandler.XenditCallback)
 
 		// Admin routes (authenticated)
 		r.Route("/admin", func(r chi.Router) {
@@ -160,6 +205,7 @@ func (s *Server) RegisterRoutes() {
 				r.Use(middleware.RequireSuperadmin())
 				r.Get("/", tenantHandler.List)
 				r.Post("/", tenantHandler.Create)
+				r.Get("/health", dashboardHandler.TenantHealth)
 
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", tenantHandler.GetByID)
@@ -280,6 +326,7 @@ func (s *Server) RegisterRoutes() {
 				r.Use(middleware.RequireSuperadmin())
 				r.Get("/stats", dashboardHandler.Stats)
 				r.Get("/revenue", dashboardHandler.Revenue)
+				r.Get("/tenant-health", dashboardHandler.TenantHealthOverview)
 			})
 
 			// Transactions (admin view)
@@ -413,12 +460,33 @@ func (s *Server) RegisterRoutes() {
 			r.Get("/stock-movements", ownerInventoryHandler.ListMovements)
 			r.Get("/stock-alerts", ownerInventoryHandler.GetLowStockAlerts)
 
+			// Inventory: Service-Supply Mappings
+			r.Get("/service-supply-mappings", ownerInventoryHandler.ListMappings)
+			r.Post("/service-supply-mappings", ownerInventoryHandler.CreateMapping)
+			r.Put("/service-supply-mappings/{id}", ownerInventoryHandler.UpdateMapping)
+			r.Delete("/service-supply-mappings/{id}", ownerInventoryHandler.DeleteMapping)
+			r.Get("/service-costs", ownerInventoryHandler.GetServiceCosts)
+
+			// Delivery Zones
+			r.Get("/delivery-zones", ownerDeliveryHandler.List)
+			r.Post("/delivery-zones", ownerDeliveryHandler.Create)
+			r.Put("/delivery-zones/{id}", ownerDeliveryHandler.Update)
+			r.Delete("/delivery-zones/{id}", ownerDeliveryHandler.Delete)
+
+			// Pickup Requests
+			r.Get("/pickup-requests", ownerDeliveryHandler.ListRequests)
+			r.Post("/pickup-requests", ownerDeliveryHandler.CreateRequest)
+			r.Put("/pickup-requests/{id}/status", ownerDeliveryHandler.UpdateRequestStatus)
+
 			// Staff Management
 			r.Get("/staff/activities", ownerStaffHandler.ListActivities)
 			r.Get("/staff/summaries", ownerStaffHandler.GetSummaries)
 
 			// Owner Dashboard
 			r.Get("/dashboard/summary", ownerDashboardHandler.GetSummary)
+			r.Get("/dashboard/summary/stream", ownerDashboardHandler.StreamSummary)
+			r.Get("/dashboard/summary/range", ownerDashboardHandler.GetSummaryRange)
+			r.Get("/dashboard/live", ownerSSEHandler.StreamRevenue)
 			r.Get("/dashboard/cashier-performance", ownerDashboardHandler.GetCashierPerformance)
 			r.Get("/dashboard/customer-insights", ownerDashboardHandler.GetCustomerInsights)
 			r.Get("/dashboard/goals", ownerDashboardHandler.GetGoals)
@@ -458,6 +526,10 @@ func (s *Server) RegisterRoutes() {
 			// Gateway payments
 			r.Post("/gateway/payments", posGatewayHandler.CreatePayment)
 			r.Get("/gateway/payments/{externalID}/status", posGatewayHandler.GetPaymentStatus)
+
+			// Delivery zones (for fee lookup) & pickup requests
+			r.Get("/delivery/zones", posDeliveryHandler.ListZones)
+			r.Post("/delivery/requests", posDeliveryHandler.CreateRequest)
 		})
 	})
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -35,11 +36,17 @@ var validTransitions = map[string][]string{
 }
 
 type OrderService struct {
-	db *pgxpool.Pool
+	db           *pgxpool.Pool
+	inventorySvc *InventoryService
 }
 
 func NewOrderService(db *pgxpool.Pool) *OrderService {
 	return &OrderService{db: db}
+}
+
+// SetInventoryService injects the InventoryService for auto-deduct stock on order completion.
+func (s *OrderService) SetInventoryService(invSvc *InventoryService) {
+	s.inventorySvc = invSvc
 }
 
 func (s *OrderService) List(ctx context.Context, tenantID uuid.UUID, params pagination.Params, status string, outletID string) ([]domain.OrderDetailResponse, int, error) {
@@ -380,6 +387,13 @@ func (s *OrderService) UpdateStatus(ctx context.Context, id uuid.UUID, userID uu
 	order.UpdatedAt = now
 	if req.Status == "done" {
 		order.CompletedAt = &now
+
+		// Auto-deduct stock for completed orders
+		if s.inventorySvc != nil {
+			if deductErr := s.inventorySvc.DeductStockForOrder(ctx, order.TenantID, userID, order.ID); deductErr != nil {
+				slog.Warn("failed to auto-deduct stock for order", "order_id", order.ID, "err", deductErr)
+			}
+		}
 	}
 	if req.Status == "picked_up" {
 		order.PickedUpAt = &now
@@ -550,4 +564,38 @@ func (s *OrderService) GetByTrackingToken(ctx context.Context, token string) (*d
 	}
 
 	return &r, nil
+}
+
+// RequestPickup records a pickup request from a customer via the public tracking page.
+// Only orders with status "done" can request pickup.
+func (s *OrderService) RequestPickup(ctx context.Context, token string) error {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	var orderID uuid.UUID
+	var status string
+	err := q.QueryRow(ctx,
+		`SELECT id, status FROM orders WHERE tracking_token = $1`, token).
+		Scan(&orderID, &status)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return apperror.NotFound("pesanan tidak ditemukan")
+		}
+		return apperror.Internal("failed to get order", err)
+	}
+
+	if status != "done" {
+		return apperror.Validation("pesanan belum selesai, tidak bisa minta penjemputan")
+	}
+
+	// Log the pickup request in order_status_logs
+	now := time.Now()
+	_, err = q.Exec(ctx, `
+		INSERT INTO order_status_logs (id, order_id, from_status, to_status, changed_by, notes, created_at)
+		VALUES ($1, $2, $3, 'pickup_requested', '00000000-0000-0000-0000-000000000000', 'Permintaan penjemputan dari pelanggan', $4)
+	`, uuid.New(), orderID, status, now)
+	if err != nil {
+		return apperror.Internal("failed to log pickup request", err)
+	}
+
+	return nil
 }

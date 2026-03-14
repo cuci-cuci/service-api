@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"log/slog"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bangun-ekosistem/service-api/internal/domain"
 	"github.com/bangun-ekosistem/service-api/internal/middleware"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/apperror"
 	"github.com/bangun-ekosistem/service-api/internal/pkg/pagination"
@@ -155,4 +157,177 @@ func (s *DashboardService) ListTransactions(ctx context.Context, params paginati
 	}
 
 	return transactions, total, nil
+}
+
+type TenantHealth struct {
+	TenantID         uuid.UUID  `json:"tenant_id"`
+	TenantName       string     `json:"tenant_name"`
+	TotalOutlets     int        `json:"total_outlets"`
+	TotalUsers       int        `json:"total_users"`
+	MonthRevenue     int64      `json:"month_revenue"`
+	PrevMonthRevenue int64      `json:"prev_month_revenue"`
+	GrowthPct        float64    `json:"growth_pct"`
+	TodayTx          int        `json:"today_tx"`
+	MonthTx          int        `json:"month_tx"`
+	LastTxAt         *time.Time `json:"last_tx_at"`
+	IsActive         bool       `json:"is_active"`
+}
+
+func (s *DashboardService) GetTenantHealth(ctx context.Context) ([]TenantHealth, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	rows, err := q.Query(ctx, `
+		SELECT
+			t.id,
+			t.name,
+			COALESCE(oc.cnt, 0) AS total_outlets,
+			COALESCE(uc.cnt, 0) AS total_users,
+			COALESCE(cur.revenue, 0) AS month_revenue,
+			COALESCE(prev.revenue, 0) AS prev_month_revenue,
+			COALESCE(cur.today_tx, 0) AS today_tx,
+			COALESCE(cur.month_tx, 0) AS month_tx,
+			cur.last_tx_at
+		FROM tenants t
+		LEFT JOIN (
+			SELECT tenant_id, COUNT(*) AS cnt FROM outlets GROUP BY tenant_id
+		) oc ON oc.tenant_id = t.id
+		LEFT JOIN (
+			SELECT tenant_id, COUNT(*) AS cnt FROM users WHERE tenant_id IS NOT NULL GROUP BY tenant_id
+		) uc ON uc.tenant_id = t.id
+		LEFT JOIN (
+			SELECT
+				tenant_id,
+				COALESCE(SUM(total_amount), 0) AS revenue,
+				COUNT(*) AS month_tx,
+				COUNT(*) FILTER (WHERE created_at >= date_trunc('day', NOW())) AS today_tx,
+				MAX(created_at) AS last_tx_at
+			FROM transactions
+			WHERE created_at >= date_trunc('month', NOW())
+			GROUP BY tenant_id
+		) cur ON cur.tenant_id = t.id
+		LEFT JOIN (
+			SELECT
+				tenant_id,
+				COALESCE(SUM(total_amount), 0) AS revenue
+			FROM transactions
+			WHERE created_at >= date_trunc('month', NOW()) - INTERVAL '1 month'
+			  AND created_at < date_trunc('month', NOW())
+			GROUP BY tenant_id
+		) prev ON prev.tenant_id = t.id
+		ORDER BY month_revenue DESC
+	`)
+	if err != nil {
+		slog.Error("failed to get tenant health", "error", err)
+		return nil, apperror.Internal("failed to get tenant health", err)
+	}
+	defer rows.Close()
+
+	var result []TenantHealth
+	for rows.Next() {
+		var th TenantHealth
+		if err := rows.Scan(
+			&th.TenantID, &th.TenantName,
+			&th.TotalOutlets, &th.TotalUsers,
+			&th.MonthRevenue, &th.PrevMonthRevenue,
+			&th.TodayTx, &th.MonthTx,
+			&th.LastTxAt,
+		); err != nil {
+			return nil, apperror.Internal("failed to scan tenant health", err)
+		}
+
+		// Calculate growth percentage
+		if th.PrevMonthRevenue > 0 {
+			th.GrowthPct = math.Round((float64(th.MonthRevenue-th.PrevMonthRevenue)/float64(th.PrevMonthRevenue)*100)*100) / 100
+		}
+
+		// Active = has transactions in last 7 days
+		if th.LastTxAt != nil {
+			th.IsActive = th.LastTxAt.After(time.Now().AddDate(0, 0, -7))
+		}
+
+		result = append(result, th)
+	}
+
+	if result == nil {
+		result = []TenantHealth{}
+	}
+
+	return result, nil
+}
+
+func (s *DashboardService) TenantHealthOverview(ctx context.Context) ([]domain.TenantHealth, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	rows, err := q.Query(ctx, `
+		SELECT
+			t.id,
+			t.name,
+			ss.last_sync_at,
+			COALESCE(tx.week_tx_count, 0),
+			COALESCE(o.active_orders, 0)
+		FROM tenants t
+		LEFT JOIN (
+			SELECT tenant_id, MAX(completed_at) AS last_sync_at
+			FROM sync_sessions
+			WHERE status = 'completed'
+			GROUP BY tenant_id
+		) ss ON ss.tenant_id = t.id
+		LEFT JOIN (
+			SELECT tenant_id, COUNT(*) AS week_tx_count
+			FROM transactions
+			WHERE created_at >= NOW() - INTERVAL '7 days'
+			  AND status = 'completed'
+			GROUP BY tenant_id
+		) tx ON tx.tenant_id = t.id
+		LEFT JOIN (
+			SELECT tenant_id, COUNT(*) AS active_orders
+			FROM orders
+			WHERE status NOT IN ('completed', 'cancelled', 'picked_up')
+			GROUP BY tenant_id
+		) o ON o.tenant_id = t.id
+		ORDER BY t.name
+	`)
+	if err != nil {
+		slog.Error("failed to get tenant health overview", "error", err)
+		return nil, apperror.Internal("failed to get tenant health overview", err)
+	}
+	defer rows.Close()
+
+	now := time.Now()
+	var result []domain.TenantHealth
+	for rows.Next() {
+		var th domain.TenantHealth
+		if err := rows.Scan(
+			&th.TenantID, &th.TenantName,
+			&th.LastSyncAt,
+			&th.WeekTxCount, &th.ActiveOrders,
+		); err != nil {
+			return nil, apperror.Internal("failed to scan tenant health overview", err)
+		}
+
+		// Determine health status
+		if th.LastSyncAt == nil {
+			th.Status = "critical"
+		} else {
+			hoursSinceSync := now.Sub(*th.LastSyncAt).Hours()
+			if hoursSinceSync <= 2 && th.WeekTxCount > 0 {
+				th.Status = "healthy"
+			} else if hoursSinceSync <= 24 {
+				th.Status = "warning"
+			} else {
+				th.Status = "critical"
+			}
+		}
+		if th.WeekTxCount == 0 && th.Status != "critical" {
+			th.Status = "warning"
+		}
+
+		result = append(result, th)
+	}
+
+	if result == nil {
+		result = []domain.TenantHealth{}
+	}
+
+	return result, nil
 }

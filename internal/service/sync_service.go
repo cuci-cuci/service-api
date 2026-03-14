@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -21,10 +23,22 @@ type SyncService struct {
 	templateSvc   *ServiceTemplateService
 	orderSvc      *OrderService
 	memberSvc     *MemberService
+	inventorySvc  *InventoryService
+	notifSvc      *NotificationService
 }
 
 func NewSyncService(db *pgxpool.Pool, configService *ConfigService, templateSvc *ServiceTemplateService, orderSvc *OrderService, memberSvc *MemberService) *SyncService {
 	return &SyncService{db: db, configService: configService, templateSvc: templateSvc, orderSvc: orderSvc, memberSvc: memberSvc}
+}
+
+// SetInventoryService sets the inventory service for auto-deduct on sync.
+func (s *SyncService) SetInventoryService(invSvc *InventoryService) {
+	s.inventorySvc = invSvc
+}
+
+// SetNotificationService sets the notification service for low stock alerts after deduction.
+func (s *SyncService) SetNotificationService(notifSvc *NotificationService) {
+	s.notifSvc = notifSvc
 }
 
 func (s *SyncService) Upload(ctx context.Context, tenantID uuid.UUID, outletID uuid.UUID, transactions []domain.Transaction) (*domain.SyncUploadResult, error) {
@@ -124,6 +138,11 @@ func (s *SyncService) Upload(ctx context.Context, tenantID uuid.UUID, outletID u
 		}
 	}
 
+	// Auto-deduct stock for completed/paid transactions
+	if s.inventorySvc != nil {
+		s.autoDeductStockForTransactions(ctx, tenantID, transactions)
+	}
+
 	// Record sync session
 	completedAt := time.Now()
 	_, syncErr := q.Exec(ctx,
@@ -177,7 +196,7 @@ func (s *SyncService) Download(ctx context.Context, tenantID uuid.UUID, currentV
 	}
 	resp.Categories = categories
 
-	// Batch 3 remaining queries into a single round-trip (members + outlets + payment methods)
+	// Batch 4 remaining queries into a single round-trip (members + outlets + payment methods + delivery zones)
 	dlBatch := &pgx.Batch{}
 	dlBatch.Queue(
 		`SELECT id, tenant_id, name, phone, email, tier, discount_percent, total_points, total_spending,
@@ -187,6 +206,9 @@ func (s *SyncService) Download(ctx context.Context, tenantID uuid.UUID, currentV
 		`SELECT id, tenant_id, name, address, phone, is_active FROM outlets WHERE tenant_id = $1 AND is_active = true`, tenantID)
 	dlBatch.Queue(
 		`SELECT id, tenant_id, name, type, is_active, sort_order, created_at FROM payment_methods WHERE tenant_id = $1 AND is_active = true ORDER BY sort_order`, tenantID)
+	dlBatch.Queue(
+		`SELECT id, tenant_id, outlet_id, name, district, fee, estimated_minutes, is_active, created_at, updated_at
+		 FROM delivery_zones WHERE tenant_id = $1 AND is_active = true ORDER BY name`, tenantID)
 
 	dlBR := q.SendBatch(ctx, dlBatch)
 	defer dlBR.Close()
@@ -250,6 +272,25 @@ func (s *SyncService) Download(ctx context.Context, tenantID uuid.UUID, currentV
 	}
 	resp.PaymentMethods = paymentMethods
 
+	// Result 4: Delivery Zones
+	dzRows, err := dlBR.Query()
+	if err != nil {
+		return nil, apperror.Internal("failed to get delivery zones", err)
+	}
+	var deliveryZones []domain.DeliveryZone
+	for dzRows.Next() {
+		var dz domain.DeliveryZone
+		if err := dzRows.Scan(&dz.ID, &dz.TenantID, &dz.OutletID, &dz.Name, &dz.District, &dz.Fee, &dz.EstimatedMinutes, &dz.IsActive, &dz.CreatedAt, &dz.UpdatedAt); err != nil {
+			return nil, apperror.Internal("failed to scan delivery zone", err)
+		}
+		deliveryZones = append(deliveryZones, dz)
+	}
+	dzRows.Close()
+	if deliveryZones == nil {
+		deliveryZones = []domain.DeliveryZone{}
+	}
+	resp.DeliveryZones = deliveryZones
+
 	return resp, nil
 }
 
@@ -302,4 +343,104 @@ func (s *SyncService) GetSyncHealth(ctx context.Context, tenantID uuid.UUID) (*d
 	}
 
 	return resp, nil
+}
+
+// autoDeductStockForTransactions deducts stock for each synced transaction's items
+// based on the service-supply mappings. This runs during sync upload.
+func (s *SyncService) autoDeductStockForTransactions(ctx context.Context, tenantID uuid.UUID, transactions []domain.Transaction) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	type txItem struct {
+		ServiceID string  `json:"serviceId"`
+		Quantity  float64 `json:"quantity"`
+	}
+
+	for _, tx := range transactions {
+		if tx.Items == nil {
+			continue
+		}
+
+		var items []txItem
+		if err := json.Unmarshal(tx.Items, &items); err != nil {
+			slog.Warn("autoDeductStock: failed to parse items", "tx_id", tx.ID, "err", err)
+			continue
+		}
+
+		for _, item := range items {
+			serviceID, parseErr := uuid.Parse(item.ServiceID)
+			if parseErr != nil {
+				continue
+			}
+
+			rows, err := q.Query(ctx, `
+				SELECT ssm.supply_id, ssm.quantity_per_unit
+				FROM service_supply_mappings ssm
+				WHERE ssm.tenant_id = $1 AND ssm.service_template_id = $2
+			`, tenantID, serviceID)
+			if err != nil {
+				slog.Warn("autoDeductStock: failed to query mappings", "service_id", serviceID, "err", err)
+				continue
+			}
+
+			type mappingRow struct {
+				supplyID        uuid.UUID
+				quantityPerUnit float64
+			}
+			var mappings []mappingRow
+			for rows.Next() {
+				var mr mappingRow
+				if scanErr := rows.Scan(&mr.supplyID, &mr.quantityPerUnit); scanErr != nil {
+					continue
+				}
+				mappings = append(mappings, mr)
+			}
+			rows.Close()
+
+			for _, mapping := range mappings {
+				deductQty := mapping.quantityPerUnit * item.Quantity
+				notes := fmt.Sprintf("Auto-deduct: Sync TX %s", tx.ID.String()[:8])
+
+				_, err := q.Exec(ctx, `
+					INSERT INTO stock_movements (tenant_id, supply_id, movement_type, quantity, notes, created_by)
+					VALUES ($1, $2, 'out', $3, $4, $5)
+				`, tenantID, mapping.supplyID, deductQty, notes, tx.CreatedBy)
+				if err != nil {
+					slog.Warn("autoDeductStock: failed to insert movement", "supply_id", mapping.supplyID, "err", err)
+					continue
+				}
+
+				_, err = q.Exec(ctx, `
+					UPDATE supplies SET current_stock = current_stock - $1, updated_at = NOW()
+					WHERE id = $2 AND tenant_id = $3
+				`, deductQty, mapping.supplyID, tenantID)
+				if err != nil {
+					slog.Warn("autoDeductStock: failed to update stock", "supply_id", mapping.supplyID, "err", err)
+				}
+			}
+		}
+	}
+
+	// After deducting stock, check for low stock and send WhatsApp alert
+	if s.notifSvc != nil {
+		go func() {
+			alertCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+
+			alerts, err := s.inventorySvc.GetLowStockAlerts(alertCtx, tenantID)
+			if err != nil || len(alerts) == 0 {
+				return
+			}
+
+			var items []LowStockAlertItem
+			for _, a := range alerts {
+				items = append(items, LowStockAlertItem{
+					Name:         a.Name,
+					CurrentStock: a.CurrentStock,
+					Unit:         a.Unit,
+					MinStock:     a.MinStock,
+				})
+			}
+			s.notifSvc.SendLowStockAlert(alertCtx, tenantID, items)
+		}()
+	}
 }

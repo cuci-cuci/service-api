@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -293,6 +295,226 @@ func (s *InventoryService) GetLowStockAlerts(ctx context.Context, tenantID uuid.
 	}
 	if result == nil {
 		result = []domain.LowStockAlert{}
+	}
+	return result, nil
+}
+
+// --- Service-Supply Mappings ---
+
+func (s *InventoryService) ListMappings(ctx context.Context, tenantID uuid.UUID, serviceTemplateID *uuid.UUID) ([]domain.ServiceSupplyMapping, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	query := `
+		SELECT ssm.id, ssm.tenant_id, ssm.service_template_id, ssm.supply_id,
+			ssm.quantity_per_unit, ssm.unit, st.name, sup.name, ssm.created_at
+		FROM service_supply_mappings ssm
+		JOIN service_templates st ON ssm.service_template_id = st.id
+		JOIN supplies sup ON ssm.supply_id = sup.id
+		WHERE ssm.tenant_id = $1
+	`
+	args := []any{tenantID}
+
+	if serviceTemplateID != nil {
+		query += " AND ssm.service_template_id = $2"
+		args = append(args, *serviceTemplateID)
+	}
+	query += " ORDER BY st.name, sup.name"
+
+	rows, err := q.Query(ctx, query, args...)
+	if err != nil {
+		return nil, apperror.Internal("failed to list service-supply mappings", err)
+	}
+	defer rows.Close()
+
+	var result []domain.ServiceSupplyMapping
+	for rows.Next() {
+		var m domain.ServiceSupplyMapping
+		if err := rows.Scan(&m.ID, &m.TenantID, &m.ServiceTemplateID, &m.SupplyID,
+			&m.QuantityPerUnit, &m.Unit, &m.ServiceName, &m.SupplyName, &m.CreatedAt); err != nil {
+			return nil, apperror.Internal("failed to scan service-supply mapping", err)
+		}
+		result = append(result, m)
+	}
+	if result == nil {
+		result = []domain.ServiceSupplyMapping{}
+	}
+	return result, nil
+}
+
+func (s *InventoryService) CreateMapping(ctx context.Context, tenantID uuid.UUID, req domain.CreateServiceSupplyMappingRequest) (*domain.ServiceSupplyMapping, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	var m domain.ServiceSupplyMapping
+	err := q.QueryRow(ctx, `
+		INSERT INTO service_supply_mappings (tenant_id, service_template_id, supply_id, quantity_per_unit, unit)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, tenant_id, service_template_id, supply_id, quantity_per_unit, unit, created_at
+	`, tenantID, req.ServiceTemplateID, req.SupplyID, req.QuantityPerUnit, req.Unit,
+	).Scan(&m.ID, &m.TenantID, &m.ServiceTemplateID, &m.SupplyID, &m.QuantityPerUnit, &m.Unit, &m.CreatedAt)
+	if err != nil {
+		return nil, apperror.Internal("failed to create service-supply mapping", err)
+	}
+
+	// Fetch joined names
+	_ = q.QueryRow(ctx, `SELECT name FROM service_templates WHERE id = $1`, req.ServiceTemplateID).Scan(&m.ServiceName)
+	_ = q.QueryRow(ctx, `SELECT name FROM supplies WHERE id = $1`, req.SupplyID).Scan(&m.SupplyName)
+
+	return &m, nil
+}
+
+func (s *InventoryService) UpdateMapping(ctx context.Context, tenantID, mappingID uuid.UUID, req domain.UpdateServiceSupplyMappingRequest) error {
+	q := middleware.GetQuerier(ctx, s.db)
+	tag, err := q.Exec(ctx, `
+		UPDATE service_supply_mappings
+		SET quantity_per_unit = $1, unit = $2, updated_at = NOW()
+		WHERE id = $3 AND tenant_id = $4
+	`, req.QuantityPerUnit, req.Unit, mappingID, tenantID)
+	if err != nil {
+		return apperror.Internal("failed to update service-supply mapping", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperror.NotFound("mapping not found")
+	}
+	return nil
+}
+
+func (s *InventoryService) DeleteMapping(ctx context.Context, tenantID, mappingID uuid.UUID) error {
+	q := middleware.GetQuerier(ctx, s.db)
+	tag, err := q.Exec(ctx, `
+		DELETE FROM service_supply_mappings WHERE id = $1 AND tenant_id = $2
+	`, mappingID, tenantID)
+	if err != nil {
+		return apperror.Internal("failed to delete service-supply mapping", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperror.NotFound("mapping not found")
+	}
+	return nil
+}
+
+// --- Auto-Deduct Stock ---
+
+// DeductStockForOrder looks up the order's transaction items, finds mappings
+// for each service, and creates stock_movement "out" records to deduct stock.
+func (s *InventoryService) DeductStockForOrder(ctx context.Context, tenantID, userID, orderID uuid.UUID) error {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	// Get the transaction items from the order's linked transaction
+	var itemsJSON json.RawMessage
+	err := q.QueryRow(ctx, `
+		SELECT t.items
+		FROM orders o
+		JOIN transactions t ON o.transaction_id = t.id
+		WHERE o.id = $1 AND o.tenant_id = $2
+	`, orderID, tenantID).Scan(&itemsJSON)
+	if err != nil {
+		// Order may not have a linked transaction — that's fine, skip deduction
+		slog.Warn("DeductStockForOrder: no transaction found for order", "order_id", orderID, "err", err)
+		return nil
+	}
+
+	// Parse transaction items
+	type txItem struct {
+		ServiceID string  `json:"serviceId"`
+		Quantity  float64 `json:"quantity"`
+	}
+	var items []txItem
+	if err := json.Unmarshal(itemsJSON, &items); err != nil {
+		slog.Warn("DeductStockForOrder: failed to parse items", "order_id", orderID, "err", err)
+		return nil
+	}
+
+	for _, item := range items {
+		serviceID, parseErr := uuid.Parse(item.ServiceID)
+		if parseErr != nil {
+			continue
+		}
+
+		// Find mappings for this service
+		rows, err := q.Query(ctx, `
+			SELECT ssm.supply_id, ssm.quantity_per_unit, sup.name
+			FROM service_supply_mappings ssm
+			JOIN supplies sup ON ssm.supply_id = sup.id
+			WHERE ssm.tenant_id = $1 AND ssm.service_template_id = $2
+		`, tenantID, serviceID)
+		if err != nil {
+			slog.Warn("DeductStockForOrder: failed to query mappings", "service_id", serviceID, "err", err)
+			continue
+		}
+
+		type mappingRow struct {
+			supplyID        uuid.UUID
+			quantityPerUnit float64
+			supplyName      string
+		}
+		var mappings []mappingRow
+		for rows.Next() {
+			var mr mappingRow
+			if scanErr := rows.Scan(&mr.supplyID, &mr.quantityPerUnit, &mr.supplyName); scanErr != nil {
+				continue
+			}
+			mappings = append(mappings, mr)
+		}
+		rows.Close()
+
+		for _, mapping := range mappings {
+			deductQty := mapping.quantityPerUnit * item.Quantity
+			notes := fmt.Sprintf("Auto-deduct: Order %s", orderID.String()[:8])
+
+			// Insert stock movement
+			_, err := q.Exec(ctx, `
+				INSERT INTO stock_movements (tenant_id, supply_id, movement_type, quantity, notes, created_by)
+				VALUES ($1, $2, 'out', $3, $4, $5)
+			`, tenantID, mapping.supplyID, deductQty, notes, userID)
+			if err != nil {
+				slog.Warn("DeductStockForOrder: failed to insert movement", "supply_id", mapping.supplyID, "err", err)
+				continue
+			}
+
+			// Update current stock
+			_, err = q.Exec(ctx, `
+				UPDATE supplies SET current_stock = current_stock - $1, updated_at = NOW()
+				WHERE id = $2 AND tenant_id = $3
+			`, deductQty, mapping.supplyID, tenantID)
+			if err != nil {
+				slog.Warn("DeductStockForOrder: failed to update stock", "supply_id", mapping.supplyID, "err", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// GetServiceCosts calculates cost per service based on mapping quantities * supply prices.
+func (s *InventoryService) GetServiceCosts(ctx context.Context, tenantID uuid.UUID) ([]domain.ServiceCostResponse, error) {
+	q := middleware.GetQuerier(ctx, s.db)
+
+	rows, err := q.Query(ctx, `
+		SELECT ssm.service_template_id, st.name,
+			COALESCE(SUM(ssm.quantity_per_unit * sup.cost_per_unit), 0)::bigint AS total_cost,
+			COUNT(ssm.id)::int AS mapping_count
+		FROM service_supply_mappings ssm
+		JOIN service_templates st ON ssm.service_template_id = st.id
+		JOIN supplies sup ON ssm.supply_id = sup.id
+		WHERE ssm.tenant_id = $1
+		GROUP BY ssm.service_template_id, st.name
+		ORDER BY st.name
+	`, tenantID)
+	if err != nil {
+		return nil, apperror.Internal("failed to get service costs", err)
+	}
+	defer rows.Close()
+
+	var result []domain.ServiceCostResponse
+	for rows.Next() {
+		var r domain.ServiceCostResponse
+		if err := rows.Scan(&r.ServiceTemplateID, &r.ServiceName, &r.TotalCostPerUnit, &r.MappingCount); err != nil {
+			return nil, apperror.Internal("failed to scan service cost", err)
+		}
+		result = append(result, r)
+	}
+	if result == nil {
+		result = []domain.ServiceCostResponse{}
 	}
 	return result, nil
 }

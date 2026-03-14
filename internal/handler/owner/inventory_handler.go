@@ -199,3 +199,108 @@ func (h *InventoryHandler) GetLowStockAlerts(w http.ResponseWriter, r *http.Requ
 	}
 	response.JSON(w, http.StatusOK, alerts)
 }
+
+// --- Service-Supply Mappings ---
+
+func (h *InventoryHandler) ListMappings(w http.ResponseWriter, r *http.Request) {
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	var serviceTemplateID *uuid.UUID
+	if sid := r.URL.Query().Get("service_template_id"); sid != "" {
+		parsed, parseErr := uuid.Parse(sid)
+		if parseErr == nil {
+			serviceTemplateID = &parsed
+		}
+	}
+	mappings, err := h.svc.ListMappings(r.Context(), tenantID, serviceTemplateID)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, mappings)
+}
+
+func (h *InventoryHandler) CreateMapping(w http.ResponseWriter, r *http.Request) {
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	var req domain.CreateServiceSupplyMappingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, apperror.Validation("invalid request body"))
+		return
+	}
+	if err := h.validate.Struct(req); err != nil {
+		response.ValidationError(w, validationErrors(err))
+		return
+	}
+	mapping, svcErr := h.svc.CreateMapping(r.Context(), tenantID, req)
+	if svcErr != nil {
+		response.Error(w, svcErr)
+		return
+	}
+	response.JSON(w, http.StatusCreated, mapping)
+}
+
+func (h *InventoryHandler) UpdateMapping(w http.ResponseWriter, r *http.Request) {
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	mappingID, parseErr := uuid.Parse(chi.URLParam(r, "id"))
+	if parseErr != nil {
+		response.Error(w, apperror.Validation("invalid mapping id"))
+		return
+	}
+	var req domain.UpdateServiceSupplyMappingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, apperror.Validation("invalid request body"))
+		return
+	}
+	if err := h.validate.Struct(req); err != nil {
+		response.ValidationError(w, validationErrors(err))
+		return
+	}
+	if svcErr := h.svc.UpdateMapping(r.Context(), tenantID, mappingID, req); svcErr != nil {
+		response.Error(w, svcErr)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *InventoryHandler) DeleteMapping(w http.ResponseWriter, r *http.Request) {
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	mappingID, parseErr := uuid.Parse(chi.URLParam(r, "id"))
+	if parseErr != nil {
+		response.Error(w, apperror.Validation("invalid mapping id"))
+		return
+	}
+	if svcErr := h.svc.DeleteMapping(r.Context(), tenantID, mappingID); svcErr != nil {
+		response.Error(w, svcErr)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *InventoryHandler) GetServiceCosts(w http.ResponseWriter, r *http.Request) {
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	costs, err := h.svc.GetServiceCosts(r.Context(), tenantID)
+	if err != nil {
+		response.Error(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, costs)
+}
