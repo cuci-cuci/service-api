@@ -108,6 +108,11 @@ func (s *Server) RegisterRoutes() {
 	ownerInventoryHandler := owner.NewInventoryHandler(inventoryService, s.Validate)
 	ownerStaffHandler := owner.NewStaffHandler(staffActivityService)
 
+	adminInventoryService := service.NewAdminInventoryService(s.DB)
+	adminOrderService := service.NewAdminOrderService(s.DB)
+	adminInventoryHandler := admin.NewAdminInventoryHandler(adminInventoryService)
+	adminOrderHandler := admin.NewAdminOrderHandler(adminOrderService)
+
 	trackingHandler := handler.NewTrackingHandler(orderService)
 	webhookHandler := handler.NewWebhookHandler(gatewayService)
 
@@ -297,6 +302,21 @@ func (s *Server) RegisterRoutes() {
 				r.Use(middleware.RequireSuperadmin())
 				r.Get("/", configHandler.ListAllConfigs)
 				r.Post("/broadcast", configHandler.BroadcastConfig)
+			})
+
+			// Inventory monitoring
+			r.Route("/inventory", func(r chi.Router) {
+				r.Use(middleware.RequireRole(domain.RoleSuperadmin, domain.RoleTenantOwner))
+				r.Get("/summary", adminInventoryHandler.Summary)
+				r.Get("/supplies", adminInventoryHandler.ListSupplies)
+				r.Get("/alerts", adminInventoryHandler.LowStockAlerts)
+			})
+
+			// Order/delivery monitoring
+			r.Route("/orders", func(r chi.Router) {
+				r.Use(middleware.RequireRole(domain.RoleSuperadmin, domain.RoleTenantOwner))
+				r.Get("/summary", adminOrderHandler.Summary)
+				r.Get("/", adminOrderHandler.List)
 			})
 		})
 

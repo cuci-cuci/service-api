@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -53,7 +55,7 @@ type DashboardGoal struct {
 	IsActive    bool      `json:"is_active"`
 }
 
-func (s *OwnerDashboardService) GetSummary(ctx context.Context, tenantID uuid.UUID) (*OwnerDashboardSummary, error) {
+func (s *OwnerDashboardService) GetSummary(ctx context.Context, tenantID uuid.UUID, outletID *uuid.UUID) (*OwnerDashboardSummary, error) {
 	q := middleware.GetQuerier(ctx, s.db)
 
 	now := time.Now()
@@ -72,6 +74,13 @@ func (s *OwnerDashboardService) GetSummary(ctx context.Context, tenantID uuid.UU
 
 	summary := &OwnerDashboardSummary{}
 
+	outletFilter := ""
+	args := []any{tenantID, todayStart, weekStart, monthStart}
+	if outletID != nil {
+		outletFilter = " AND outlet_id = $5"
+		args = append(args, *outletID)
+	}
+
 	// Revenue aggregation in one query
 	err := q.QueryRow(ctx, `
 		SELECT
@@ -80,8 +89,8 @@ func (s *OwnerDashboardService) GetSummary(ctx context.Context, tenantID uuid.UU
 			COALESCE(SUM(CASE WHEN created_at >= $3 THEN total_amount END), 0) as week_revenue,
 			COALESCE(SUM(CASE WHEN created_at >= $4 THEN total_amount END), 0) as month_revenue
 		FROM transactions
-		WHERE tenant_id = $1 AND status = 'completed'
-	`, tenantID, todayStart, weekStart, monthStart).Scan(
+		WHERE tenant_id = $1 AND status = 'completed'`+outletFilter+`
+	`, args...).Scan(
 		&summary.TodayRevenue,
 		&summary.TodayTransactions,
 		&summary.WeekRevenue,
@@ -92,25 +101,36 @@ func (s *OwnerDashboardService) GetSummary(ctx context.Context, tenantID uuid.UU
 	}
 
 	// Previous month revenue
+	prevArgs := []any{tenantID, prevMonthStart, prevMonthEnd}
+	prevFilter := ""
+	if outletID != nil {
+		prevFilter = " AND outlet_id = $4"
+		prevArgs = append(prevArgs, *outletID)
+	}
 	err = q.QueryRow(ctx, `
 		SELECT COALESCE(SUM(total_amount), 0)
 		FROM transactions
 		WHERE tenant_id = $1 AND status = 'completed'
-			AND created_at >= $2 AND created_at <= $3
-	`, tenantID, prevMonthStart, prevMonthEnd).Scan(&summary.PrevMonthRevenue)
+			AND created_at >= $2 AND created_at <= $3`+prevFilter+`
+	`, prevArgs...).Scan(&summary.PrevMonthRevenue)
 	if err != nil {
 		return nil, apperror.Internal("failed to get prev month revenue", err)
 	}
 
-	// Month expenses
+	// Month expenses (outlet-scoped if available)
+	expArgs := []any{tenantID, monthStart.Format("2006-01-02"), now.AddDate(0, 0, 1).Format("2006-01-02")}
+	expFilter := ""
+	if outletID != nil {
+		expFilter = " AND outlet_id = $4"
+		expArgs = append(expArgs, *outletID)
+	}
 	err = q.QueryRow(ctx, `
 		SELECT COALESCE(SUM(amount), 0)
 		FROM expenses
 		WHERE tenant_id = $1
-			AND expense_date >= $2 AND expense_date < $3
-	`, tenantID, monthStart.Format("2006-01-02"), now.AddDate(0, 0, 1).Format("2006-01-02")).Scan(&summary.MonthExpenses)
+			AND expense_date >= $2 AND expense_date < $3`+expFilter+`
+	`, expArgs...).Scan(&summary.MonthExpenses)
 	if err != nil {
-		// Table might not exist yet for new tenants — treat as 0
 		summary.MonthExpenses = 0
 	}
 
@@ -125,8 +145,15 @@ func (s *OwnerDashboardService) GetSummary(ctx context.Context, tenantID uuid.UU
 	return summary, nil
 }
 
-func (s *OwnerDashboardService) GetCashierPerformance(ctx context.Context, tenantID uuid.UUID, days int) ([]CashierPerformance, error) {
+func (s *OwnerDashboardService) GetCashierPerformance(ctx context.Context, tenantID uuid.UUID, days int, outletID *uuid.UUID) ([]CashierPerformance, error) {
 	q := middleware.GetQuerier(ctx, s.db)
+
+	outletFilter := ""
+	args := []any{tenantID, strconv.Itoa(days)}
+	if outletID != nil {
+		outletFilter = fmt.Sprintf(" AND t.outlet_id = $%d", len(args)+1)
+		args = append(args, *outletID)
+	}
 
 	rows, err := q.Query(ctx, `
 		SELECT u.id, u.name, COUNT(t.id), COALESCE(SUM(t.total_amount), 0),
@@ -134,10 +161,10 @@ func (s *OwnerDashboardService) GetCashierPerformance(ctx context.Context, tenan
 		FROM transactions t
 		JOIN users u ON t.created_by = u.id
 		WHERE t.tenant_id = $1 AND t.status = 'completed'
-			AND t.created_at >= NOW() - ($2 || ' days')::INTERVAL
+			AND t.created_at >= NOW() - ($2 || ' days')::INTERVAL`+outletFilter+`
 		GROUP BY u.id, u.name
 		ORDER BY SUM(t.total_amount) DESC
-	`, tenantID, days)
+	`, args...)
 	if err != nil {
 		return nil, apperror.Internal("failed to get cashier performance", err)
 	}
