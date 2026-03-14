@@ -21,7 +21,9 @@ WORKDIR /app
 
 COPY --from=builder /app/server .
 COPY --from=builder /app/migrations ./migrations
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "echo 'ENV CHECK: DATABASE_URL set='$(test -n \"$DATABASE_URL\" && echo yes || echo no) && echo 'ENV CHECK: JWT_SECRET set='$(test -n \"$JWT_SECRET\" && echo yes || echo no) && ./server"]
+ENTRYPOINT ["./entrypoint.sh"]
