@@ -46,6 +46,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Tune connection pool for production
+	poolConfig.MaxConns = 50
+	poolConfig.MinConns = 10
+	poolConfig.MaxConnLifetime = 30 * time.Minute
+	poolConfig.MaxConnIdleTime = 5 * time.Minute
+	poolConfig.HealthCheckPeriod = 30 * time.Second
+
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		slog.Error("failed to connect to database", "error", err)
