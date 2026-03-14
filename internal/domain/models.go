@@ -112,6 +112,10 @@ type Transaction struct {
 	ShiftID                *uuid.UUID      `json:"shift_id,omitempty"`
 	CustomerPhone          *string         `json:"customer_phone,omitempty"`
 	EstimatedDurationHours *int            `json:"estimated_duration_hours,omitempty"`
+	DeliveryType           *string         `json:"delivery_type,omitempty"`
+	DeliveryAddress        *string         `json:"delivery_address,omitempty"`
+	DeliveryFee            *int64          `json:"delivery_fee,omitempty"`
+	ScheduledPickupAt      *string         `json:"scheduled_pickup_at,omitempty"`
 	CreatedAt              time.Time       `json:"created_at"`
 	SyncedAt               *time.Time      `json:"synced_at,omitempty"`
 }
@@ -179,6 +183,10 @@ type Order struct {
 	Notes                 *string    `json:"notes,omitempty"`
 	CustomerPhone         *string    `json:"customer_phone,omitempty"`
 	TrackingToken         *string    `json:"tracking_token,omitempty"`
+	DeliveryType          string     `json:"delivery_type"`
+	DeliveryAddress       *string    `json:"delivery_address,omitempty"`
+	DeliveryFee           int64      `json:"delivery_fee"`
+	ScheduledPickupAt     *time.Time `json:"scheduled_pickup_at,omitempty"`
 	CreatedBy             uuid.UUID  `json:"created_by"`
 	UpdatedBy             uuid.UUID  `json:"updated_by"`
 	CreatedAt             time.Time  `json:"created_at"`

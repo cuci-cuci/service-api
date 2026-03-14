@@ -74,6 +74,8 @@ func (s *Server) RegisterRoutes() {
 	gatewayService := service.NewGatewayService(s.DB, s.Config)
 	expenseService := service.NewExpenseService(s.DB)
 	ownerDashboardService := service.NewOwnerDashboardService(s.DB)
+	inventoryService := service.NewInventoryService(s.DB)
+	staffActivityService := service.NewStaffActivityService(s.DB)
 
 	// Handlers
 	authHandler := handler.NewAuthHandler(authService, billingService, s.Validate, s.Config)
@@ -103,6 +105,8 @@ func (s *Server) RegisterRoutes() {
 	ownerGatewayHandler := owner.NewGatewayHandler(gatewayService, s.Validate)
 	ownerFinanceHandler := owner.NewFinanceHandler(expenseService, s.Validate)
 	ownerDashboardHandler := owner.NewOwnerDashboardHandler(ownerDashboardService)
+	ownerInventoryHandler := owner.NewInventoryHandler(inventoryService, s.Validate)
+	ownerStaffHandler := owner.NewStaffHandler(staffActivityService)
 
 	trackingHandler := handler.NewTrackingHandler(orderService)
 	webhookHandler := handler.NewWebhookHandler(gatewayService)
@@ -373,6 +377,24 @@ func (s *Server) RegisterRoutes() {
 			// Finance: Reports
 			r.Get("/finance/pnl", ownerFinanceHandler.GetPnLReport)
 			r.Get("/finance/cashflow", ownerFinanceHandler.GetCashFlowReport)
+
+			// Inventory: Supply Categories
+			r.Get("/supply-categories", ownerInventoryHandler.ListCategories)
+			r.Post("/supply-categories", ownerInventoryHandler.CreateCategory)
+
+			// Inventory: Supplies
+			r.Get("/supplies", ownerInventoryHandler.ListSupplies)
+			r.Post("/supplies", ownerInventoryHandler.CreateSupply)
+			r.Put("/supplies/{id}", ownerInventoryHandler.UpdateSupply)
+
+			// Inventory: Stock Movements
+			r.Post("/stock-movements", ownerInventoryHandler.RecordMovement)
+			r.Get("/stock-movements", ownerInventoryHandler.ListMovements)
+			r.Get("/stock-alerts", ownerInventoryHandler.GetLowStockAlerts)
+
+			// Staff Management
+			r.Get("/staff/activities", ownerStaffHandler.ListActivities)
+			r.Get("/staff/summaries", ownerStaffHandler.GetSummaries)
 
 			// Owner Dashboard
 			r.Get("/dashboard/summary", ownerDashboardHandler.GetSummary)

@@ -172,6 +172,10 @@ type CreateOrderRequest struct {
 	EstimatedDurationHours int     `json:"estimated_duration_hours"`
 	Notes                  string  `json:"notes"`
 	CustomerPhone          string  `json:"customer_phone"`
+	DeliveryType           string  `json:"delivery_type"`
+	DeliveryAddress        string  `json:"delivery_address"`
+	DeliveryFee            int64   `json:"delivery_fee"`
+	ScheduledPickupAt      string  `json:"scheduled_pickup_at"`
 }
 
 type UpdateOrderStatusRequest struct {
