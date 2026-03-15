@@ -128,7 +128,7 @@ func (s *StaffActivityService) GetStaffSummaries(ctx context.Context, tenantID u
 		FROM users u
 		LEFT JOIN staff_activity_logs sal ON u.id = sal.user_id
 			AND sal.tenant_id = $1
-			AND sal.created_at >= NOW() - ($2::text || ' days')::INTERVAL
+			AND sal.created_at >= NOW() - make_interval(days => $2)
 		WHERE u.tenant_id = $1 AND u.role = 'cashier'
 		GROUP BY u.id, u.name
 		ORDER BY revenue DESC

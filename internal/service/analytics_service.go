@@ -267,7 +267,7 @@ func (s *AnalyticsService) DailyRevenue(ctx context.Context, tenantID uuid.UUID,
 		       COALESCE(SUM(t.total_amount), 0) as revenue,
 		       COUNT(*) as transactions
 		FROM transactions t
-		WHERE t.tenant_id = $1 AND t.created_at >= NOW() - ($2::text || ' days')::INTERVAL
+		WHERE t.tenant_id = $1 AND t.created_at >= NOW() - make_interval(days => $2)
 		GROUP BY date_trunc('day', t.created_at)
 		ORDER BY date
 	`

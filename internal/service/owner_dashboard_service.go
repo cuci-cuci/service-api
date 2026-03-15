@@ -173,7 +173,7 @@ func (s *OwnerDashboardService) GetCashierPerformance(ctx context.Context, tenan
 		FROM transactions t
 		JOIN users u ON t.created_by = u.id
 		WHERE t.tenant_id = $1 AND t.status = 'completed'
-			AND t.created_at >= NOW() - ($2::text || ' days')::INTERVAL`+outletFilter+`
+			AND t.created_at >= NOW() - make_interval(days => $2)`+outletFilter+`
 		GROUP BY u.id, u.name
 		ORDER BY SUM(t.total_amount) DESC
 	`, args...)
@@ -213,8 +213,8 @@ func (s *OwnerDashboardService) GetCustomerInsights(ctx context.Context, tenantI
 			GROUP BY customer_name
 		)
 		SELECT
-			COALESCE(COUNT(CASE WHEN first_tx >= NOW() - ($2::text || ' days')::INTERVAL THEN 1 END), 0),
-			COALESCE(COUNT(CASE WHEN first_tx < NOW() - ($2::text || ' days')::INTERVAL THEN 1 END), 0),
+			COALESCE(COUNT(CASE WHEN first_tx >= NOW() - make_interval(days => $2) THEN 1 END), 0),
+			COALESCE(COUNT(CASE WHEN first_tx < NOW() - make_interval(days => $2) THEN 1 END), 0),
 			COUNT(*)
 		FROM customer_first_tx
 	`, tenantID, days).Scan(&insights.NewCustomers, &insights.ReturningCustomers, &insights.TotalUnique)

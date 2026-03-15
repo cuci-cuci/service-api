@@ -170,7 +170,7 @@ test_endpoint GET "/owner/expenses" "$OWNER_TOKEN" "200" "List expenses"
 test_endpoint GET "/owner/recurring-expenses" "$OWNER_TOKEN" "200" "Recurring expenses"
 test_endpoint GET "/owner/finance/pnl?start_date=2026-02-01&end_date=2026-03-16" "$OWNER_TOKEN" "200" "P&L report"
 test_endpoint GET "/owner/finance/cashflow?start_date=2026-02-01&end_date=2026-03-16" "$OWNER_TOKEN" "200" "Cash flow report"
-test_endpoint GET "/owner/finance/tax?start_date=2026-02-01&end_date=2026-03-16" "$OWNER_TOKEN" "200" "Tax report"
+test_endpoint GET "/owner/finance/tax?month=3&year=2026" "$OWNER_TOKEN" "200" "Tax report"
 
 echo ""
 echo "--- OWNER: Inventory ---"
