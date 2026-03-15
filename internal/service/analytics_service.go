@@ -169,6 +169,7 @@ func (s *AnalyticsService) RevenueByService(ctx context.Context, tenantID uuid.U
 		FROM transactions t,
 		     jsonb_array_elements(t.items) as item
 		WHERE t.tenant_id = $1 AND t.status = 'completed'
+		  AND t.items IS NOT NULL AND jsonb_array_length(t.items) > 0
 	`
 	args := []any{tenantID}
 	argIdx := 2
