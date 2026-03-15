@@ -76,7 +76,7 @@ func (s *ExpenseService) CreateExpense(ctx context.Context, tenantID uuid.UUID, 
 	err := q.QueryRow(ctx,
 		`INSERT INTO expenses (tenant_id, outlet_id, category_id, amount, description, expense_date, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
-		 RETURNING id, tenant_id, outlet_id, category_id, amount, description, expense_date, receipt_url, created_by, created_at, updated_at`,
+		 RETURNING id, tenant_id, outlet_id, category_id, amount, description, expense_date::text, receipt_url, created_by, created_at, updated_at`,
 		tenantID, req.OutletID, req.CategoryID, req.Amount, req.Description, req.ExpenseDate, userID).
 		Scan(&e.ID, &e.TenantID, &e.OutletID, &e.CategoryID, &e.Amount, &e.Description, &e.ExpenseDate, &e.ReceiptURL, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
@@ -126,7 +126,7 @@ func (s *ExpenseService) ListExpenses(ctx context.Context, tenantID uuid.UUID, s
 	// Paginated query
 	offset := (page - 1) * perPage
 	selectQuery := fmt.Sprintf(
-		`SELECT e.id, e.tenant_id, e.outlet_id, e.category_id, e.amount, e.description, e.expense_date,
+		`SELECT e.id, e.tenant_id, e.outlet_id, e.category_id, e.amount, e.description, e.expense_date::text,
 		        e.receipt_url, e.created_by, e.created_at, e.updated_at, ec.name, o.name
 		 %s ORDER BY e.expense_date DESC, e.created_at DESC LIMIT $%d OFFSET $%d`,
 		baseQuery, argIdx, argIdx+1)
@@ -158,7 +158,7 @@ func (s *ExpenseService) GetExpense(ctx context.Context, tenantID, expenseID uui
 
 	var e domain.Expense
 	err := q.QueryRow(ctx,
-		`SELECT e.id, e.tenant_id, e.outlet_id, e.category_id, e.amount, e.description, e.expense_date,
+		`SELECT e.id, e.tenant_id, e.outlet_id, e.category_id, e.amount, e.description, e.expense_date::text,
 		        e.receipt_url, e.created_by, e.created_at, e.updated_at, ec.name, o.name
 		 FROM expenses e
 		 LEFT JOIN expense_categories ec ON e.category_id = ec.id
@@ -185,7 +185,7 @@ func (s *ExpenseService) UpdateExpense(ctx context.Context, tenantID, expenseID 
 			expense_date = COALESCE($7, expense_date),
 			updated_at = NOW()
 		 WHERE id = $1 AND tenant_id = $2
-		 RETURNING id, tenant_id, outlet_id, category_id, amount, description, expense_date, receipt_url, created_by, created_at, updated_at`,
+		 RETURNING id, tenant_id, outlet_id, category_id, amount, description, expense_date::text, receipt_url, created_by, created_at, updated_at`,
 		expenseID, tenantID, req.CategoryID, req.OutletID, req.Amount, req.Description, req.ExpenseDate).
 		Scan(&e.ID, &e.TenantID, &e.OutletID, &e.CategoryID, &e.Amount, &e.Description, &e.ExpenseDate, &e.ReceiptURL, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
@@ -216,7 +216,7 @@ func (s *ExpenseService) CreateRecurringExpense(ctx context.Context, tenantID uu
 	err := q.QueryRow(ctx,
 		`INSERT INTO recurring_expenses (tenant_id, category_id, outlet_id, amount, description, frequency, next_due_date)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
-		 RETURNING id, tenant_id, category_id, outlet_id, amount, description, frequency, next_due_date, is_active, created_at, updated_at`,
+		 RETURNING id, tenant_id, category_id, outlet_id, amount, description, frequency, next_due_date::text, is_active, created_at, updated_at`,
 		tenantID, req.CategoryID, req.OutletID, req.Amount, req.Description, req.Frequency, req.NextDueDate).
 		Scan(&re.ID, &re.TenantID, &re.CategoryID, &re.OutletID, &re.Amount, &re.Description, &re.Frequency, &re.NextDueDate, &re.IsActive, &re.CreatedAt, &re.UpdatedAt)
 	if err != nil {
@@ -229,7 +229,7 @@ func (s *ExpenseService) ListRecurringExpenses(ctx context.Context, tenantID uui
 	q := middleware.GetQuerier(ctx, s.db)
 
 	rows, err := q.Query(ctx,
-		`SELECT id, tenant_id, category_id, outlet_id, amount, description, frequency, next_due_date, is_active, created_at, updated_at
+		`SELECT id, tenant_id, category_id, outlet_id, amount, description, frequency, next_due_date::text, is_active, created_at, updated_at
 		 FROM recurring_expenses WHERE tenant_id = $1 AND is_active = true ORDER BY next_due_date`, tenantID)
 	if err != nil {
 		return nil, apperror.Internal("failed to list recurring expenses", err)

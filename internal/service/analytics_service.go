@@ -131,7 +131,7 @@ func (s *AnalyticsService) TransactionStats(ctx context.Context, startDate, endD
 	query := `
 		SELECT COUNT(id) as total_transactions,
 		       COALESCE(SUM(total_amount), 0) as total_revenue,
-		       COALESCE(AVG(total_amount), 0) as avg_transaction
+		       COALESCE(AVG(total_amount), 0)::bigint as avg_transaction
 		FROM transactions
 		WHERE 1=1
 	`
@@ -267,7 +267,7 @@ func (s *AnalyticsService) DailyRevenue(ctx context.Context, tenantID uuid.UUID,
 		       COALESCE(SUM(t.total_amount), 0) as revenue,
 		       COUNT(*) as transactions
 		FROM transactions t
-		WHERE t.tenant_id = $1 AND t.created_at >= NOW() - ($2 || ' days')::INTERVAL
+		WHERE t.tenant_id = $1 AND t.created_at >= NOW() - ($2::text || ' days')::INTERVAL
 		GROUP BY date_trunc('day', t.created_at)
 		ORDER BY date
 	`
